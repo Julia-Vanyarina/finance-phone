@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F6F3EC">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Финансы">
+<title>Мои финансы</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i></div>
+
+<header class="top">
+  <div>
+    <h1 id="title">Записать</h1>
+    <div class="sub" id="subtitle">трата уйдёт на компьютер по кнопке «Синхронизировать»</div>
+  </div>
+  <button class="sync" id="syncBtn" type="button">
+    <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>
+    <span id="syncText">Синхронизировать</span>
+    <b id="syncCount" class="count" hidden>0</b>
+  </button>
+</header>
+
+<main>
+  <!-- ======================= Записать -->
+  <section id="page-add" class="page active">
+    <form id="addForm" class="card" autocomplete="off">
+      <div class="seg" role="tablist">
+        <button type="button" class="on" data-kind="expense">Трата</button>
+        <button type="button" data-kind="income">Доход</button>
+      </div>
+
+      <label class="amount">
+        <input id="amount" inputmode="decimal" placeholder="0" aria-label="Сумма">
+        <span>₽</span>
+      </label>
+
+      <label class="field" id="rowField">
+        <span>Из строки-плана месяца</span>
+        <select id="row"><option value="">— не из плана, новой строкой —</option></select>
+      </label>
+
+      <label class="field">
+        <span>Категория</span>
+        <select id="category"></select>
+      </label>
+
+      <label class="field">
+        <span>Что купили / комментарий</span>
+        <input id="note" placeholder="например: кофе, продукты в Самокате" enterkeyhint="done">
+      </label>
+
+      <div class="two">
+        <label class="field">
+          <span>Дата</span>
+          <input id="date" type="date">
+        </label>
+        <label class="field">
+          <span>Колонка</span>
+          <select id="half">
+            <option value="0">по дате (сама)</option>
+            <option value="1">С зарплаты</option>
+            <option value="2">С аванса</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="dest">
+        <button type="button" class="on" data-mode="send">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+          На компьютер
+        </button>
+        <button type="button" data-mode="local">
+          <svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></svg>
+          Только на телефоне
+        </button>
+      </div>
+      <p class="hint" id="destHint">Уйдёт в лист месяца на компьютере при синхронизации.</p>
+
+      <button class="primary" type="submit">Записать</button>
+    </form>
+    <div id="today" class="card soft"></div>
+  </section>
+
+  <!-- ======================= Записи -->
+  <section id="page-list" class="page">
+    <div class="filters">
+      <button type="button" class="chip on" data-f="all">Все</button>
+      <button type="button" class="chip" data-f="pending">Ждут отправки</button>
+      <button type="button" class="chip" data-f="local">Только на телефоне</button>
+    </div>
+    <div id="list"></div>
+  </section>
+
+  <!-- ======================= Сводка -->
+  <section id="page-sum" class="page">
+    <div id="summary"></div>
+  </section>
+
+  <!-- ======================= Настройки -->
+  <section id="page-set" class="page">
+    <div class="card">
+      <h2>Яндекс Диск</h2>
+      <p class="hint">Записи и сводка лежат в папке приложения на вашем Диске и зашифрованы паролем.</p>
+      <label class="field"><span>Номер приложения (ClientID)</span><input id="cid" placeholder="32 символа с oauth.yandex.ru" autocapitalize="off" spellcheck="false"></label>
+      <button class="primary" type="button" id="loginBtn">Войти через Яндекс</button>
+      <p class="status" id="tokenStatus"></p>
+      <details>
+        <summary>Вставить токен</summary>
+        <p class="hint">Если «Войти через Яндекс» не возвращает обратно: нажмите «Получить токен», разрешите доступ,
+          скопируйте токен со страницы Яндекса и вставьте сюда.</p>
+        <button class="ghost" type="button" id="tokenGet">Получить токен</button>
+        <label class="field"><span>Токен</span><input id="tokenManual" autocapitalize="off" spellcheck="false"></label>
+        <button class="ghost" type="button" id="tokenSave">Сохранить токен</button>
+      </details>
+    </div>
+    <div class="card">
+      <h2>Пароль синхронизации</h2>
+      <p class="hint">Тот же, что в программе на компьютере («☰ Ещё → 📲 Телефон → Настроить»). Без него ничего не прочитать.</p>
+      <label class="field"><span>Пароль</span><input id="pw" type="password" autocomplete="new-password"></label>
+      <button class="ghost" type="button" id="pwSave">Сохранить пароль</button>
+      <p class="status" id="pwStatus"></p>
+    </div>
+    <div class="card">
+      <h2>Проверка</h2>
+      <button class="ghost" type="button" id="testBtn">Проверить связь с Диском</button>
+      <p class="status" id="testStatus"></p>
+    </div>
+    <div class="card">
+      <h2>Данные на телефоне</h2>
+      <p class="hint" id="storageInfo"></p>
+      <button class="ghost danger" type="button" id="clearSent">Убрать из списка уже дошедшие до компьютера</button>
+    </div>
+    <p class="hint center">Мои финансы · телефон · версия <span id="ver"></span></p>
+  </section>
+</main>
+
+<nav class="tabs">
+  <button type="button" class="on" data-page="add"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Записать</button>
+  <button type="button" data-page="list"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h5"/></svg>Записи</button>
+  <button type="button" data-page="sum"><svg viewBox="0 0 24 24"><path d="M4 20h16"/><path d="M5 15c3-6 5 2 8-4s4-5 6-6"/></svg>Сводка</button>
+  <button type="button" data-page="set"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Настройки</button>
+</nav>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
