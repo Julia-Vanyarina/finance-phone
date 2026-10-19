@@ -37,11 +37,18 @@ const store = {
 let entries = store.get("entries", []);
 let cfg = store.get("cfg", { repo: "", ghToken: "", pw: "", lastMode: "send" });
 let snap = store.get("snap", null);
+let locked = false;                       // PIN включён и ещё не введён — данные не показываем
 let kind = "expense";
 let mode = cfg.lastMode || "send";
 let filter = "all";
 const saveEntries = () => store.set("entries", entries);
-const saveCfg = () => store.set("cfg", cfg);
+const saveCfg = () => store.set("cfg", cfg.pinOn ? { ...cfg, ghToken: "", pw: "" } : cfg);
+function saveSnap(text) {
+  /* сводка хранится в том виде, как пришла (зашифрована паролем синхронизации); без PIN — ещё и открытой */
+  if (text) store.set("snapBox", text);
+  if (cfg.pinOn) { try { localStorage.removeItem("mf.snap"); } catch (e) { /* нет */ } }
+  else store.set("snap", snap);
+}
 
 /* ------------------------------------------------------------------ мелочи */
 function fmt(x) {
@@ -153,10 +160,11 @@ function needSetup() {
 
 /* ------------------------------------------------------------------ синхронизация */
 let syncing = false;
-async function sync() {
-  if (syncing) return;
+async function sync(quiet = false) {
+  if (syncing || locked) return;
   const why = needSetup();
-  if (why) { toast(why); showPage("set"); return; }
+  if (why) { if (!quiet) { toast(why); showPage("set"); } return; }
+  if (quiet && navigator.onLine === false) return;
   syncing = true;
   $("syncBtn").classList.add("busy");
   $("syncText").textContent = "Синхронизирую…";
@@ -167,6 +175,9 @@ async function sync() {
         f: FORMAT, sent: new Date().toISOString(), device: navigator.userAgent.slice(0, 80),
         entries: pending.map((e) => (e.kind === "bank"
           ? { id: e.id, date: e.date, kind: "bank", real: e.real, diff: e.diff, record: e.record, created: e.created }
+          : e.kind === "done" ? { id: e.id, date: e.date, kind: "done", row_id: e.row_id, created: e.created }
+          : e.kind === "fundpay" ? { id: e.id, date: e.date, kind: "fundpay", fund: e.fund, amount: e.amount,
+            category: e.category, note: e.note, created: e.created }
           : { id: e.id, date: e.date, kind: e.kind, amount: e.amount, category: e.category,
             note: e.note, half: e.half || null, row_id: e.row_id || null, created: e.created })),
       };
@@ -180,7 +191,7 @@ async function sync() {
     let note = "";
     if (text) {
       snap = await decryptText(text, cfg.pw);
-      store.set("snap", snap);
+      saveSnap(text);
       const got = new Set(snap.received || []);
       let changed = false;
       entries.forEach((e) => { if (e.status === "sent" && got.has(e.id)) { e.status = "done"; changed = true; } });
@@ -188,14 +199,116 @@ async function sync() {
     } else {
       note = " · сводки с компьютера пока нет: откройте программу на компьютере";
     }
-    toast((pending.length ? `Отправлено: ${pending.length}` : "Новых записей для компьютера нет") + note, 4200);
+    if (!quiet || pending.length) toast((pending.length ? `Отправлено: ${pending.length}` : "Новых записей для компьютера нет") + note, 4200);
+    cfg.lastSync = new Date().toISOString(); saveCfg();
   } catch (e) {
-    toast(e instanceof SyncError ? e.message : "Ошибка: " + e.message, 5200);
+    if (!quiet || !(e instanceof SyncError) || !/интернет/.test(e.message)) toast(e instanceof SyncError ? e.message : "Ошибка: " + e.message, 5200);
   } finally {
     syncing = false;
     $("syncBtn").classList.remove("busy");
     renderAll();
   }
+}
+
+let autoTimer = null;
+function autoSync(delay = 1500) {
+  /* сама отправляет записи и забирает сводку: после записи, при открытии и при возврате в приложение.
+     Без интернета — тихо ждёт: записи останутся «ждут отправки», кнопка «Синхронизировать» всегда под рукой. */
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(() => sync(true), delay);
+}
+
+/* ------------------------------------------------------------------ PIN-код */
+const PIN_ITER = 300000;
+let pinTries = 0, pinWait = 0, pinBuf = "", hiddenAt = 0;
+async function pinKey(pin, salt) {
+  const base = await crypto.subtle.importKey("raw", enc.encode("mf-pin:" + pin), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: PIN_ITER, hash: "SHA-256" }, base,
+    { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function pinSet(pin) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await pinKey(pin, salt),
+    enc.encode(JSON.stringify({ ghToken: cfg.ghToken, pw: cfg.pw })));
+  cfg.pinBox = { salt: b64(salt), iv: b64(iv), ct: b64(ct) };
+  cfg.pinLen = pin.length;
+  if (snap && !store.get("snapBox", null) && cfg.pw) store.set("snapBox", await encryptObj(snap, cfg.pw));
+  cfg.pinOn = true;
+  saveCfg();
+  saveSnap(null);
+}
+async function pinOpen(pin) {
+  const box = cfg.pinBox;
+  try {
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(box.iv) }, await pinKey(pin, unb64(box.salt)), unb64(box.ct));
+    const sec = JSON.parse(dec.decode(plain));
+    cfg.ghToken = sec.ghToken; cfg.pw = sec.pw;
+  } catch (e) { return false; }
+  const sb = store.get("snapBox", null);
+  if (sb && cfg.pw) { try { snap = await decryptText(sb, cfg.pw); } catch (e) { snap = null; } }
+  return true;
+}
+function lockNow() {
+  if (!cfg.pinOn) return;
+  locked = true;
+  cfg.ghToken = ""; cfg.pw = ""; snap = null;           // в памяти — ничего секретного, пока PIN не введён
+  pinBuf = "";
+  document.querySelectorAll(".sheet-bg").forEach((x) => x.remove());
+  $("lock").hidden = false;
+  drawPin("");
+}
+function drawPin(msg) {
+  const n = cfg.pinLen || 4;
+  $("pinDots").innerHTML = Array.from({ length: n }, (_, i) => `<i class="${i < pinBuf.length ? "on" : ""}"></i>`).join("");
+  if (msg !== undefined) $("pinMsg").textContent = msg;
+}
+async function pinPress(k) {
+  if (Date.now() < pinWait) { drawPin(`Подождите ${Math.ceil((pinWait - Date.now()) / 1000)} с`); return; }
+  if (k === "del") { pinBuf = pinBuf.slice(0, -1); drawPin(); return; }
+  if (pinBuf.length >= (cfg.pinLen || 4)) return;
+  pinBuf += k; drawPin();
+  if (pinBuf.length === (cfg.pinLen || 4)) {
+    drawPin("Проверяю…");
+    const ok = await pinOpen(pinBuf);
+    if (ok) {
+      locked = false; pinTries = 0; pinBuf = "";
+      $("lock").hidden = true;
+      renderAll();
+      autoSync(300);
+    } else {
+      pinTries += 1; pinBuf = "";
+      if (pinTries >= 5) { pinWait = Date.now() + 30000 * (pinTries - 4); drawPin("Неверно. Подождите 30 секунд"); }
+      else drawPin(`Неверный PIN-код (попытка ${pinTries} из 5)`);
+      const d = $("pinDots"); d.classList.remove("shake"); void d.offsetWidth; d.classList.add("shake");
+    }
+  }
+}
+function pinForgot() {
+  if (!confirm("Сбросить PIN-код? Токен, пароль и сводка на телефоне сотрутся — их нужно будет ввести заново. " +
+    "Записи на телефоне останутся.")) return;
+  cfg.pinOn = false; cfg.pinBox = null; cfg.ghToken = ""; cfg.pw = ""; snap = null;
+  try { localStorage.removeItem("mf.snap"); localStorage.removeItem("mf.snapBox"); } catch (e) { /* нет */ }
+  saveCfg();
+  locked = false; $("lock").hidden = true; renderAll(); showPage("set");
+}
+function pinSetupDialog() {
+  if (!cfg.ghToken || !cfg.pw) { toast("Сначала вставьте токен и пароль синхронизации"); return; }
+  sheetDialog(`<h2>${cfg.pinOn ? "Сменить PIN-код" : "Поставить PIN-код"}</h2>
+    <p class="hint">Код будет спрашиваться при каждом открытии приложения и через минуту после сворачивания.
+    Токен, пароль и сводка на телефоне хранятся зашифрованными этим кодом. Лучше 6 цифр.</p>
+    <label class="field"><span>PIN-код (4–6 цифр)</span><input id="pinA" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>
+    <label class="field"><span>Ещё раз</span><input id="pinB" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>
+    <button class="primary" data-a="pin">Сохранить PIN-код</button>`, (a) => {
+    if (a !== "pin") return;
+    const p1 = $("pinA").value.trim(), p2 = $("pinB").value.trim();
+    if (!/^\d{4,6}$/.test(p1)) { toast("PIN — от 4 до 6 цифр"); return false; }
+    if (p1 !== p2) { toast("PIN-коды не совпадают"); return false; }
+    pinSet(p1).then(() => { renderSettings(); toast("PIN-код поставлен ✓"); });
+  });
+}
+function pinRemove() {
+  if (!confirm("Убрать PIN-код? Токен и пароль снова будут храниться на телефоне без защиты кодом.")) return;
+  cfg.pinOn = false; cfg.pinBox = null; saveCfg(); saveSnap(null); renderSettings(); toast("PIN-код убран");
 }
 
 /* ------------------------------------------------------------------ настройки из ссылки */
@@ -249,6 +362,13 @@ function parseAmount(s) {
   const v = Number(String(s).replace(/\s| /g, "").replace(",", "."));
   return Number.isFinite(v) ? Math.round(v * 100) / 100 : NaN;
 }
+let editingId = null;
+function setEditing(id) {
+  editingId = id;
+  const b = $("editBanner");
+  if (b) b.hidden = !id;
+  if ($("submitBtn")) $("submitBtn").textContent = id ? "Сохранить" : "Записать";
+}
 function onSubmit(ev) {
   ev.preventDefault();
   const amount = parseAmount($("amount").value);
@@ -261,14 +381,22 @@ function onSubmit(ev) {
     half: Number($("half").value) || 0, row_id: rowId, row_name: row ? row.name : "",
     mode, status: mode === "send" ? "pending" : "local",
   };
-  entries.unshift(e);
-  if (!saveEntries()) { entries.shift(); return; }
+  const editIdx = editingId ? entries.findIndex((x) => x.id === editingId) : -1;
+  let old = null;
+  if (editIdx >= 0) {                       // правка неотправленной записи: тот же id, на том же месте
+    old = entries[editIdx];
+    e.id = old.id; e.created = old.created;
+    entries[editIdx] = e;
+  } else entries.unshift(e);
+  if (!saveEntries()) { if (old) entries[editIdx] = old; else entries.shift(); return; }
+  setEditing(null);
   cfg.lastMode = mode;
   if (kind === "income") cfg.lastInc = e.category; else cfg.lastExp = e.category;
   saveCfg();
   $("amount").value = ""; $("note").value = ""; $("row").value = ""; $("note").placeholder = "например: кофе, продукты в Самокате";
-  toast((kind === "income" ? "Доход " : "Трата ") + fmtExact(amount) + (mode === "send" ? " — ждёт синхронизации" : " — только на телефоне"));
+  toast((kind === "income" ? "Доход " : "Трата ") + fmtExact(amount) + (mode === "send" ? " — отправляю…" : " — только на телефоне"));
   renderAll();
+  if (mode === "send") autoSync();
 }
 
 /* ------------------------------------------------------------------ иконки категорий (тонкие линии) */
@@ -288,6 +416,7 @@ const ICON = {
   "_fund": '<ellipse cx="12" cy="13" rx="8" ry="6"/><path d="M9 9h5M7 18v3M17 18v3"/>',
   "_default": '<circle cx="12" cy="12" r="4"/>',
 };
+const ICON_CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16.5 9.5"/></svg>';
 const ICON_BANK = '<svg viewBox="0 0 24 24"><path d="M3 10 12 4l9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>';
 function iconFor(e) {
   const k = e.kind === "income" ? "_income" : (e.category || "").startsWith("В фонд") ? "_fund"
@@ -314,6 +443,14 @@ function renderList() {
       html += `<div class="sec">${ddmm(day)}${day === todayISO() ? " · сегодня" : ""}</div><div class="card" style="padding:0">`;
     }
     const half = e.half || autoHalf(e.date);
+    if (e.kind === "done" || e.kind === "fundpay") {
+      const t = e.kind === "done" ? `Оплачено ● «${esc(e.row_name)}»` : `Из фонда «${esc(e.fund)}» · ${esc(e.note || e.category)}`;
+      const sub = e.kind === "done" ? "отметка в листе" : esc(e.category);
+      html += `<div class="entry" data-id="${e.id}"><div class="ic">${e.kind === "done" ? ICON_CHECK : `<svg viewBox="0 0 24 24">${ICON._fund}</svg>`}</div><div class="mid">
+        <div class="t">${t}</div><div class="s">${sub} ${badge(e)}</div></div>
+        <div class="sum">${e.kind === "fundpay" ? "−" + fmtExact(e.amount) : ""}</div></div>`;
+      return;
+    }
     if (e.kind === "bank") {
       html += `<div class="entry" data-id="${e.id}"><div class="ic">${ICON_BANK}</div><div class="mid">
         <div class="t">Сверка с банком</div><div class="s">${esc(e.note)} ${badge(e)}</div></div>
@@ -373,7 +510,11 @@ function renderSummary() {
     $("summary").innerHTML = `<div class="card empty">Сводка появится после первой синхронизации.<br>На компьютере: «☰ Ещё → 📲 Телефон → Настроить».</div>`;
     return;
   }
-  let h = `<div class="card">${todayBlock()}${snap.cards != null ? `<div class="line"><span>На картах должно быть</span><span class="r">${fmt(snap.cards)}</span></div>` : ""}</div>`;
+  const imp = importantItems();
+  const impLine = (r) => `<div class="line"><span>${esc(r.icon)} ${esc(r.text)}</span></div>`;
+  let h = imp.length ? `<div class="card soft"><h2>🔔 Важное</h2>${imp.slice(0, 4).map(impLine).join("")}` +
+    (imp.length > 4 ? `<details><summary>ещё ${imp.length - 4}</summary>${imp.slice(4).map(impLine).join("")}</details>` : "") + `</div>` : "";
+  h += `<div class="card">${todayBlock()}${snap.cards != null ? `<div class="line"><span>На картах должно быть</span><span class="r">${fmt(snap.cards)}</span></div>` : ""}</div>`;
   if (snap.month) h += `<div class="sec">${esc(snap.month.title)} · ${esc(snap.month.span)}</div>`;
   (snap.halves || []).forEach((half) => {
     h += `<div class="card"><h2>${esc(half.title)}</h2>
@@ -400,6 +541,10 @@ function renderSummary() {
     snap.payments.forEach((p) => { h += `<div class="line"><span>${ddmm(p.date)} · ${esc(p.name)}</span><span class="r">${fmt(p.amount)}</span></div>`; });
     h += `</div>`;
   }
+  h += `<div class="card"><h2>Напоминания в Календаре iPhone</h2>
+    <p class="hint" style="margin-top:0">Платежи и дни рождения добавятся в Календарь с напоминанием накануне в 10:00 (о подарке — за 2 недели).
+    Повторно добавляются только новые.</p>
+    <button class="ghost" type="button" data-go="ics">📅 Добавить в Календарь</button></div>`;
   $("summary").innerHTML = h;
 }
 /* ------------------------------------------------------------------ Лист месяца (как на компьютере) */
@@ -472,15 +617,15 @@ function renderSheet() {
       hf.rows.forEach((r) => {
         if (!r.from_fund) left -= r.amount;
         const fact = rowActual(r);
-        const st = r.done ? '<span class="dot green"></span>' : (r.spent ? '<span class="dot yellow"></span>' : '<span class="dot" style="background:#C9D6F8"></span>');
+        const st = r.done || pendingDone(r.id) ? '<span class="dot green"></span>' : (r.spent ? '<span class="dot yellow"></span>' : '<span class="dot" style="background:#C9D6F8"></span>');
         const extra = r.from_fund ? "из фонда" : (r.spent && !r.done ? `потрачено ${fmt(r.spent)}, ост. ${fmt(r.left)}`
           : (r.spent && r.spent > r.amount + 0.5 ? "перерасход" : ""));
-        h += `<div class="line"><span>${st}${esc(r.name)}${extra ? `<div class="hint" style="margin:1px 0 0 16px">${extra}</div>` : ""}</span>
+        h += `<div class="line tap" data-row="${r.id}"><span>${st}${esc(r.name)}${pendingDone(r.id) && !r.done ? ' <span class="muted">(● ждёт отправки)</span>' : ""}${extra ? `<div class="hint" style="margin:1px 0 0 16px">${extra}</div>` : ""}</span>
           <span class="r">${fmt(r.amount)}<div class="hint" style="margin:1px 0 0;text-align:right">${left < 0 ? '<span class="red">' + fmt(left) + "</span>" : fmt(left)}</div></span></div>`;
       });
       h += `</div>`;
     });
-    h += `<p class="hint center">● оплачено · ◐ тратится · ○ ещё нет. Справа под суммой — остаток колонки после строки.</p>`;
+    h += `<p class="hint center">● оплачено · ◐ тратится · ○ ещё нет. Справа под суммой — остаток колонки после строки.<br>Нажмите на строку — «Потратила из неё» или «Отметить оплаченной ●».</p>`;
   }
   box.innerHTML = h;
 }
@@ -512,7 +657,8 @@ function renderFunds() {
       ${f.goal ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}
       <div class="hint">${esc(dl)}${f.auto ? ` · автоплатёж ${fmt(f.auto)} ${f.auto_day}-го` : ""}${f.planned ? ` · запланировано +${fmt(f.planned)}` : ""}</div>
       ${pend ? `<div class="hint">📱 с телефона ждёт: +${fmt(pend)}</div>` : ""}
-      <button class="ghost" type="button" data-fund="${i}">＋ Пополнить</button></div>`;
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="ghost" type="button" data-fund="${i}">＋ Пополнить</button>
+      ${f.saved > 0 ? `<button class="ghost" type="button" data-fundpay="${i}">Оплатить из фонда</button>` : ""}</div></div>`;
   });
   box.innerHTML = h;
 }
@@ -625,6 +771,12 @@ function bankSend(record) {
 }
 
 function renderSettings() {
+  if ($("pinStatus")) {
+    $("pinStatus").textContent = cfg.pinOn ? "PIN-код включён ✓" : "PIN-код не поставлен";
+    $("pinStatus").className = "status " + (cfg.pinOn ? "ok" : "");
+    $("pinBtn").textContent = cfg.pinOn ? "Сменить PIN-код" : "Поставить PIN-код";
+    $("pinOff").hidden = !cfg.pinOn;
+  }
   $("repo").value = cfg.repo || "";
   const st = $("tokenStatus");
   st.textContent = cfg.ghToken ? "Токен сохранён на этом телефоне ✓" : "Токен ещё не вставлен";
@@ -651,6 +803,7 @@ function renderAll() {
   renderFunds();
   renderSettings();
   renderCount();
+  updateBadge();
 }
 
 /* ------------------------------------------------------------------ действия над записью */
@@ -662,8 +815,12 @@ function openEntry(id) {
   const canSend = e.status === "local";
   const canLocal = e.status === "pending";
   const canDelete = e.status !== "sent";
-  bg.innerHTML = `<div class="sheet"><h2>${esc(e.note || e.category)} · ${fmtExact(e.amount)}</h2>
-    <p class="hint">${ddmm(e.date)} · ${esc(e.category)} · ${HALF_NAME[e.half || autoHalf(e.date)]}</p>
+  const canEdit = (e.kind === "expense" || e.kind === "income") && (e.status === "pending" || e.status === "local");
+  const title = e.kind === "done" ? `Оплачено ● «${esc(e.row_name)}»` : e.kind === "fundpay" ? `Из фонда «${esc(e.fund)}» · ${fmtExact(e.amount)}`
+    : e.kind === "bank" ? "Сверка с банком" : `${esc(e.note || e.category)} · ${fmtExact(e.amount)}`;
+  bg.innerHTML = `<div class="sheet"><h2>${title}</h2>
+    <p class="hint">${ddmm(e.date)} · ${esc(e.category || "")}${e.kind === "expense" || e.kind === "income" ? " · " + HALF_NAME[e.half || autoHalf(e.date)] : ""}</p>
+    ${canEdit ? '<button class="primary" data-a="edit">Изменить</button>' : ""}
     ${e.status === "sent" ? '<p class="hint">Уже отправлена — компьютер заберёт её при следующем запуске. Удалить отсюда нельзя: исправьте в программе на компьютере.</p>' : ""}
     ${e.status === "done" ? '<p class="hint">Уже записана в лист на компьютере. Удаление здесь уберёт её только из этого списка.</p>' : ""}
     ${canSend ? '<button class="primary" data-a="send">Отправить на компьютер</button>' : ""}
@@ -673,6 +830,7 @@ function openEntry(id) {
   bg.addEventListener("click", (ev) => {
     const a = ev.target.dataset && ev.target.dataset.a;
     if (ev.target === bg || a === "close") { bg.remove(); return; }
+    if (a === "edit") { bg.remove(); editEntry(e); return; }
     if (a === "send") { e.mode = "send"; e.status = "pending"; }
     if (a === "local") { e.mode = "local"; e.status = "local"; }
     if (a === "del") {
@@ -682,6 +840,145 @@ function openEntry(id) {
     if (a) { saveEntries(); bg.remove(); renderAll(); }
   });
   document.body.appendChild(bg);
+}
+
+function editEntry(e) {
+  kind = e.kind; mode = e.mode;
+  showPage("add");
+  fillForm();
+  if (!categories().includes(e.category)) $("category").insertAdjacentHTML("beforeend", `<option>${esc(e.category)}</option>`);
+  $("category").value = e.category;
+  $("amount").value = String(e.amount).replace(".", ",");
+  $("note").value = e.note || "";
+  $("date").value = e.date;
+  $("half").value = String(e.half || 0);
+  $("row").value = e.row_id ? String(e.row_id) : "";
+  setEditing(e.id);
+  toast("Измените и нажмите «Сохранить»");
+}
+
+/* ------------------------------------------------------------------ лист действий */
+function sheetDialog(html, onClick) {
+  const bg = document.createElement("div");
+  bg.className = "sheet-bg";
+  bg.innerHTML = `<div class="sheet">${html}<button class="ghost" data-a="close">Закрыть</button></div>`;
+  bg.addEventListener("click", (ev) => {
+    const a = ev.target.dataset && ev.target.dataset.a;
+    if (ev.target === bg || a === "close") { bg.remove(); return; }
+    if (a && onClick(a, bg) !== false) bg.remove();
+  });
+  document.body.appendChild(bg);
+  return bg;
+}
+function findRow(id) {
+  for (const sh of (snap && snap.sheets) || []) for (const h of sh.halves) for (const r of h.rows) if (r.id === id) return { r, half: h.half };
+  return null;
+}
+function pendingDone(rowId) {
+  return entries.some((e) => e.kind === "done" && e.row_id === rowId && e.status !== "done");
+}
+function openRow(id) {
+  const f = findRow(id);
+  if (!f) return;
+  const r = f.r;
+  const canSpend = !r.credit && !r.from_fund && !r.done && r.left > 0.5;
+  const canDone = !r.done && !pendingDone(id);
+  sheetDialog(`<h2>${esc(r.name)} · ${fmt(r.amount)}</h2>
+    <p class="hint">${esc(r.category)}${r.spent ? ` · потрачено ${fmt(r.spent)}, осталось ${fmt(r.left)}` : ""}${r.done ? " · оплачено ●" : ""}${pendingDone(id) ? " · отметка ● ждёт синхронизации" : ""}</p>
+    ${canSpend ? '<button class="primary" data-a="spend">Потратила из этой строки…</button>' : ""}
+    ${canDone ? '<button class="ghost" data-a="done">Отметить оплаченной ●</button>' : ""}`, (a) => {
+    if (a === "spend") {
+      kind = "expense"; mode = "send"; setEditing(null);
+      showPage("add"); fillForm();
+      $("row").value = String(id); onRowChange(); $("amount").focus();
+    }
+    if (a === "done") {
+      entries.unshift({ id: uid(), created: new Date().toISOString(), date: todayISO(), kind: "done", amount: 0,
+        category: r.category, note: "", row_id: id, row_name: r.name, half: f.half, mode: "send", status: "pending" });
+      saveEntries(); renderAll();
+      toast(`«${r.name}» отмечено ● — уйдёт на компьютер при синхронизации`);
+    }
+  });
+}
+function payFromFund(i) {
+  const f = snap.funds[i];
+  const cats = ((snap.categories && snap.categories.expense) || EXPENSE_DEFAULT).filter((c) => !c.startsWith("В фонд"));
+  const guess = { "здоров": "Здоровье и врачи", "подар": "Подарки", "отпуск": "Поездки и отпуск", "очки": "Здоровье и врачи",
+    "новый год": "Подарки", "танц": "Хобби и творчество", "йог": "Хобби и творчество", "вокал": "Хобби и творчество" };
+  const want = Object.entries(guess).find(([k]) => f.name.toLowerCase().includes(k));
+  const def = want ? want[1] : "Другое";
+  const bg = sheetDialog(`<h2>Оплатить из фонда «${esc(f.name)}»</h2>
+    <p class="hint">В фонде ${fmt(f.saved)}. В листе появится «Из фонда …» и сама трата — для месяца это ноль, фонд уменьшится.</p>
+    <label class="field"><span>Сумма</span><input id="fpAmount" inputmode="decimal" placeholder="0"></label>
+    <label class="field"><span>На что (категория)</span><select id="fpCat">${cats.map((c) => `<option ${c === def ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
+    <label class="field"><span>Комментарий</span><input id="fpNote" placeholder="например: стоматолог"></label>
+    <label class="field"><span>Дата</span><input id="fpDate" type="date" value="${todayISO()}"></label>
+    <button class="primary" data-a="pay">Оплатить из фонда</button>`, (a) => {
+    if (a !== "pay") return;
+    const amount = parseAmount($("fpAmount").value);
+    if (!(amount > 0)) { toast("Введите сумму"); return false; }
+    if (amount > f.saved + 0.5 && !confirm(`В фонде ${fmt(f.saved)}, а оплата ${fmt(amount)} — фонд уйдёт в минус. Всё равно оплатить?`)) return false;
+    entries.unshift({ id: uid(), created: new Date().toISOString(), date: $("fpDate").value || todayISO(), kind: "fundpay",
+      fund: f.name, amount, category: $("fpCat").value, note: $("fpNote").value.trim(), half: 0, row_id: null,
+      mode: "send", status: "pending" });
+    saveEntries(); renderAll();
+    toast(`Из «${f.name}» ${fmtExact(amount)} — уйдёт на компьютер при синхронизации`);
+  });
+  setTimeout(() => { const i2 = bg.querySelector("#fpAmount"); if (i2) i2.focus(); }, 150);
+}
+
+/* ------------------------------------------------------------------ напоминания и Календарь */
+function importantItems() {
+  const out = [];
+  if (snap && snap.reminders) snap.reminders.forEach((r) => out.push({ icon: r.icon, text: r.text }));
+  const old = entries.filter((e) => e.status === "pending" && Date.now() - new Date(e.created).getTime() > 86400000).length;
+  if (old) out.push({ icon: "📤", text: `${old} запис${old === 1 ? "ь ждёт" : "и ждут"} отправки больше суток — нажмите «Синхронизировать»` });
+  if (snap && snap.generated && Date.now() - new Date(snap.generated).getTime() > 3 * 86400000)
+    out.push({ icon: "🕰", text: "Сводке больше трёх дней — откройте программу на компьютере, чтобы цифры обновились" });
+  return out;
+}
+function updateBadge() {
+  const n = importantItems().length;
+  const tab = document.querySelector('.tabs button[data-page="sum"]');
+  if (tab) tab.classList.toggle("has-dot", n > 0);
+  try { if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch (e) { /* нет */ }
+}
+function icsEscape(t) { return String(t).replace(/[\\;,]/g, (c) => "\\" + c).replace(/\n/g, "\\n"); }
+function icsDate(iso) { return iso.replace(/-/g, "").slice(0, 8); }
+function addDays(iso, k) { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + k); return d.toISOString().slice(0, 10); }
+function exportCalendar() {
+  if (!snap) { toast("Сначала синхронизируйтесь"); return; }
+  const done = new Set(cfg.icsDone || []);
+  const ev = [];
+  (snap.payments || []).forEach((p) => ev.push({ key: `pay:${p.date}:${p.name}:${p.amount}`, date: p.date,
+    title: `💳 ${p.name} — ${fmt(p.amount)}`, note: "Внесение по плану погашения (Мои финансы)" }));
+  const y = new Date().getFullYear();
+  (snap.birthdays || []).forEach((b) => {
+    let d = `${y}-${String(b.month).padStart(2, "0")}-${String(b.day).padStart(2, "0")}`;
+    if (d < todayISO()) d = `${y + 1}` + d.slice(4);
+    ev.push({ key: `bd:${b.name}:${b.month}-${b.day}`, date: d, title: `🎂 ${b.name}`, note: "День рождения / праздник (Мои финансы)", yearly: true });
+  });
+  const fresh = ev.filter((e) => !done.has(e.key));
+  if (!fresh.length) { toast("Новых платежей и дат для Календаря нет — всё уже добавлено"); return; }
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
+  let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Moi finansy//RU\r\nCALSCALE:GREGORIAN\r\n";
+  fresh.forEach((e, i) => {
+    ics += "BEGIN:VEVENT\r\n" + `UID:${Date.now()}-${i}@moi-finansy\r\nDTSTAMP:${stamp}\r\n` +
+      `DTSTART;VALUE=DATE:${icsDate(e.date)}\r\nDTEND;VALUE=DATE:${icsDate(addDays(e.date, 1))}\r\n` +
+      (e.yearly ? "RRULE:FREQ=YEARLY\r\n" : "") +
+      `SUMMARY:${icsEscape(e.title)}\r\nDESCRIPTION:${icsEscape(e.note)}\r\n` +
+      "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Напоминание\r\nTRIGGER:-PT14H\r\nEND:VALARM\r\n" +
+      (e.yearly ? "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Подарок\r\nTRIGGER:-P13DT14H\r\nEND:VALARM\r\n" : "") +
+      "END:VEVENT\r\n";
+  });
+  ics += "END:VCALENDAR\r\n";
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "moi-finansy.ics";
+  document.body.appendChild(a); a.click(); a.remove();
+  cfg.icsDone = [...done, ...fresh.map((e) => e.key)].slice(-400); saveCfg();
+  toast(`В файле ${fresh.length} событий — нажмите «Добавить все», напомнит накануне в 10:00`, 6000);
 }
 
 /* ------------------------------------------------------------------ навигация */
@@ -712,16 +1009,39 @@ function init() {
   }));
   $("row").addEventListener("change", onRowChange);
   $("setBtn").addEventListener("click", () => showPage("set"));
+  $("editCancel").addEventListener("click", (ev) => {
+    ev.preventDefault(); setEditing(null);
+    $("amount").value = ""; $("note").value = ""; $("row").value = ""; $("date").value = todayISO();
+    toast("Изменение отменено — запись осталась как была");
+  });
+  $("badgeBtn").addEventListener("click", async () => {
+    const st = $("badgeStatus");
+    if (!("Notification" in window) || !navigator.setAppBadge) {
+      st.textContent = "Здесь это не поддерживается — откройте приложение с иконки на экране «Домой» (iOS 16.4 и новее)."; st.className = "status bad"; return;
+    }
+    const res = await Notification.requestPermission();
+    st.textContent = res === "granted" ? "Готово ✓ На иконке будет число важных дел." : "iPhone не дал разрешение — можно включить в Настройках iPhone → Уведомления.";
+    st.className = "status " + (res === "granted" ? "ok" : "bad");
+    updateBadge();
+  });
+  $("icsReset").addEventListener("click", () => { cfg.icsDone = []; saveCfg(); exportCalendar(); });
   document.addEventListener("click", (ev) => {
-    const t = ev.target.closest ? ev.target.closest("[data-sheet],[data-mode2],[data-fund],[data-go]") : null;
+    const t = ev.target.closest ? ev.target.closest("[data-sheet],[data-mode2],[data-fund],[data-fundpay],[data-go],[data-row]") : null;
     if (!t) return;
     if (t.dataset.sheet !== undefined) { sheetIdx = Number(t.dataset.sheet); renderSheet(); }
     else if (t.dataset.mode2) { sheetMode = t.dataset.mode2; renderSheet(); }
     else if (t.dataset.fund !== undefined) topUpFund(Number(t.dataset.fund));
+    else if (t.dataset.fundpay !== undefined) payFromFund(Number(t.dataset.fundpay));
+    else if (t.dataset.row !== undefined) openRow(Number(t.dataset.row));
+    else if (t.dataset.go === "ics") exportCalendar();
     else if (t.dataset.go) showPage(t.dataset.go);
   });
   $("addForm").addEventListener("submit", onSubmit);
   $("syncBtn").addEventListener("click", sync);
+  setTimeout(() => {                         // при открытии — коротко о важном (раз в день)
+    const n = importantItems().length;
+    if (n && cfg.impSeen !== todayISO()) { toast(`🔔 Важное: ${n} — загляните в «Сводку»`, 4500); cfg.impSeen = todayISO(); saveCfg(); }
+  }, 800);
   $("list").addEventListener("click", (ev) => { const el = ev.target.closest(".entry"); if (el) openEntry(el.dataset.id); });
   $("tokenPage").addEventListener("click", (ev) => { ev.preventDefault(); window.open(TOKEN_PAGE, "_blank"); });
   $("ghSave").addEventListener("click", () => {
@@ -763,9 +1083,20 @@ function init() {
     entries = entries.filter((e) => e.status !== "done"); saveEntries(); renderAll();
   });
   $("date").value = todayISO();
+  document.querySelectorAll("#lock [data-k]").forEach((b) => b.addEventListener("click", () => pinPress(b.dataset.k)));
+  $("pinForgot").addEventListener("click", (ev) => { ev.preventDefault(); pinForgot(); });
+  $("pinBtn").addEventListener("click", pinSetupDialog);
+  $("pinOff").addEventListener("click", pinRemove);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (cfg.pinOn && !locked && hiddenAt && Date.now() - hiddenAt > 60000) { lockNow(); return; }
+    if (!locked && hiddenAt && Date.now() - hiddenAt > 30000) autoSync(500);     // вернулись в приложение — обновим
+  });
+  window.addEventListener("online", () => autoSync(800));
+  if (cfg.pinOn) { snap = null; lockNow(); }
   renderAll();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
-  if (needSetup()) showPage("set");
+  if (!locked) { if (needSetup()) showPage("set"); else autoSync(600); }
 }
 document.addEventListener("DOMContentLoaded", init);

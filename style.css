@@ -158,3 +158,30 @@ h1 { font-size: 25px; white-space: nowrap; overflow: hidden; text-overflow: elli
 .top { gap: 8px; padding-left: 14px; padding-right: 12px; }
 .sync { font-size: 13px; padding: 9px 11px; gap: 5px; }
 @media (max-width: 380px) { #syncText { display: none; } }
+.line.tap { cursor: pointer; }
+.line.tap:active { background: rgba(188, 205, 248, .25); }
+.tabs button { position: relative; }
+.tabs button.has-dot::after { content: ""; position: absolute; top: 5px; right: calc(50% - 16px); width: 8px; height: 8px;
+  border-radius: 50%; background: var(--red); }
+.edit-banner { background: #FFF1CF; color: #8A6A10; border-radius: 12px; padding: 8px 12px; margin-bottom: 12px; font-size: 14px; }
+.edit-banner a { color: var(--blue); }
+.lock { position: fixed; inset: 0; z-index: 50; background: var(--paper); display: flex; align-items: center; justify-content: center;
+  background-image: radial-gradient(circle at 10% 0%, rgba(147, 173, 242, .45), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgba(147, 173, 242, .40), transparent 55%); }
+.lock-in { width: 100%; max-width: 340px; padding: 20px; text-align: center; }
+.lock-ic { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 10px; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--blue2), var(--blue)); box-shadow: 0 8px 22px rgba(111, 143, 234, .35); }
+.lock-ic svg { width: 30px; height: 30px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; }
+.lock h2 { font-size: 24px; margin: 6px 0 0; }
+.pin-dots { display: flex; justify-content: center; gap: 14px; margin: 18px 0 6px; }
+.pin-dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--blue); }
+.pin-dots i.on { background: var(--blue); }
+.pin-dots.shake { animation: shake .35s; }
+@keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 14px 10px 10px; }
+.keys button { height: 66px; border-radius: 50%; border: 1px solid var(--line); background: rgba(255, 253, 248, .9);
+  font-size: 26px; color: var(--ink); box-shadow: 0 3px 10px rgba(111, 143, 234, .12); }
+.keys button:active { background: var(--soft); }
+.center { text-align: center; }
+[hidden] { display: none !important; }
+.keys button { width: 74px; height: 74px; justify-self: center; }
