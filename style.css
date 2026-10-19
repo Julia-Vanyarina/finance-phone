@@ -146,3 +146,15 @@ summary { color: var(--blue); font-size: 14px; }
 .toast { position: fixed; left: 16px; right: 16px; bottom: calc(86px + var(--safe-b)); z-index: 30; padding: 12px 16px;
   border-radius: 16px; background: rgba(38, 48, 79, .92); color: #fff; font-size: 15px; text-align: center;
   box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
+.hint a { color: var(--blue); }
+.gear { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: #fff; display: grid;
+  place-items: center; flex: none; }
+.gear svg { width: 21px; height: 21px; fill: none; stroke: var(--blue); stroke-width: 1.7; stroke-linecap: round; }
+.dot.yellow { background: var(--amber); }
+.line > span:first-child { min-width: 0; }
+.sync { padding: 9px 12px; }
+h1 { font-size: 25px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top { gap: 8px; padding-left: 14px; padding-right: 12px; }
+.sync { font-size: 13px; padding: 9px 11px; gap: 5px; }
+@media (max-width: 380px) { #syncText { display: none; } }

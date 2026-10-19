@@ -1,16 +1,17 @@
 /* Мои финансы — телефон.
    Записи хранятся на телефоне (localStorage). «Синхронизировать» шифрует паролем записи с пометкой
-   «на компьютер» и кладёт их в папку приложения на Яндекс Диске (app:/inbox), затем забирает сводку
-   с компьютера (app:/snapshot.enc). Формат шифрования совпадает с phone_sync.py на компьютере:
+   «на компьютер» и кладёт их в ваш приватный репозиторий GitHub (inbox/), затем забирает сводку
+   с компьютера (snapshot.enc). Формат шифрования совпадает с phone_sync.py на компьютере:
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
 const VERSION = "1.0";
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
-const API = "https://cloud-api.yandex.net/v1/disk";
-const INBOX = "app:/inbox";
-const SNAPSHOT = "app:/snapshot.enc";
+const API = "https://api.github.com";
+const INBOX = "inbox";
+const SNAPSHOT = "snapshot.enc";
+const TOKEN_PAGE = "https://github.com/settings/personal-access-tokens/new";
 
 const EXPENSE_DEFAULT = ["Продукты", "Обеды и кафе", "Транспорт", "Связь", "Подписки", "Одежда и маркетплейсы",
   "Красота и уход", "Здоровье и врачи", "Дом и быт", "Поездки и отпуск", "Подарки", "Переводы близким",
@@ -34,7 +35,7 @@ const store = {
   },
 };
 let entries = store.get("entries", []);
-let cfg = store.get("cfg", { cid: "", token: "", tokenUntil: 0, pw: "", lastMode: "send" });
+let cfg = store.get("cfg", { repo: "", ghToken: "", pw: "", lastMode: "send" });
 let snap = store.get("snap", null);
 let kind = "expense";
 let mode = cfg.lastMode || "send";
@@ -108,50 +109,45 @@ async function decryptText(text, pw) {
   }
 }
 
-/* ------------------------------------------------------------------ Яндекс Диск */
-class DiskError extends Error {}
-async function http(method, url, opts = {}) {
+/* ------------------------------------------------------------------ GitHub (приватный репозиторий) */
+class SyncError extends Error {}
+function cleanRepo(t) {
+  t = String(t || "").trim().replace(/\/+$/, "").replace(/^https?:\/\//, "").replace(/^(www\.)?github\.com\//, "").replace(/\.git$/, "");
+  return t.split("/").filter(Boolean).slice(0, 2).join("/");
+}
+async function gh(method, path, body) {
+  const url = path === null ? `${API}/repos/${cfg.repo}`
+    : `${API}/repos/${cfg.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
+  const headers = { Authorization: "Bearer " + cfg.ghToken, Accept: "application/vnd.github+json" };
+  if (body) headers["Content-Type"] = "application/json";
   let r;
   try {
-    r = await fetch(url, { method, headers: opts.headers || {}, body: opts.body, cache: "no-store" });
+    r = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined, cache: "no-store" });
   } catch (e) {
-    throw new DiskError(navigator.onLine === false ? "Нет интернета — записи подождут на телефоне"
-      : "Яндекс Диск не ответил (сеть или ограничение браузера). Записи остались на телефоне.");
+    throw new SyncError(navigator.onLine === false ? "Нет интернета — записи подождут на телефоне"
+      : "GitHub не ответил — проверьте интернет. Записи остались на телефоне.");
   }
-  if (r.status === 401) throw new DiskError("Яндекс не принял вход — нажмите «Войти через Яндекс» в настройках");
-  if (r.status === 403) throw new DiskError("Нет доступа к Диску — проверьте права приложения на oauth.yandex.ru");
-  if (r.status === 507) throw new DiskError("На Яндекс Диске закончилось место");
-  return r;
-}
-async function api(method, path, params) {
-  const q = new URLSearchParams(params).toString();
-  const r = await http(method, `${API}${path}?${q}`, { headers: { Authorization: "OAuth " + cfg.token, Accept: "application/json" } });
+  if (r.status === 401) throw new SyncError("GitHub не принял токен — вставьте новый во вкладке «Настройки»");
+  if (r.status === 403) throw new SyncError("У токена нет права записи — нужен доступ «Contents: Read and write» к репозиторию");
+  if (r.status === 404 && path === null) throw new SyncError(`Репозиторий «${cfg.repo}» не найден — проверьте название и доступ токена`);
   let data = {};
   try { data = await r.json(); } catch (e) { /* пусто */ }
   return { status: r.status, data };
 }
-async function ensureFolder(path) {
-  const { status, data } = await api("PUT", "/resources", { path });
-  if (status !== 201 && status !== 409) throw new DiskError("Не получилось создать папку на Диске (" + (data.message || status) + ")");
-}
-async function upload(path, text) {
-  const { status, data } = await api("GET", "/resources/upload", { path, overwrite: "true" });
-  if (status !== 200 || !data.href) throw new DiskError("Диск не дал загрузить файл (" + (data.message || status) + ")");
-  const r = await http(data.method || "PUT", data.href, { body: new Blob([text], { type: "application/octet-stream" }) });
-  if (![200, 201, 202].includes(r.status)) throw new DiskError("Не загрузилось на Диск (" + r.status + ")");
+async function upload(path, text, message) {
+  const { status, data } = await gh("PUT", path, { message, content: b64(enc.encode(text)) });
+  if (status !== 200 && status !== 201) throw new SyncError("Не получилось отправить на GitHub (" + (data.message || status) + ")");
 }
 async function download(path) {
-  const { status, data } = await api("GET", "/resources/download", { path });
+  const { status, data } = await gh("GET", path);
   if (status === 404) return null;
-  if (status !== 200 || !data.href) throw new DiskError("Диск не дал скачать файл (" + (data.message || status) + ")");
-  const r = await http("GET", data.href);
-  if (r.status !== 200) throw new DiskError("Не скачалось с Диска (" + r.status + ")");
-  return await r.text();
+  if (status !== 200 || !data.content) throw new SyncError("Не получилось скачать сводку (" + (data.message || status) + ")");
+  return dec.decode(unb64(data.content.replace(/\s/g, "")));
 }
 function needSetup() {
-  if (!cfg.token) return "Сначала войдите через Яндекс (вкладка «Настройки»)";
-  if (cfg.tokenUntil && Date.now() > cfg.tokenUntil) return "Вход в Яндекс истёк — войдите заново в «Настройках»";
-  if (!cfg.pw) return "Сначала введите пароль синхронизации (вкладка «Настройки»)";
+  if (!cfg.repo || !cfg.repo.includes("/")) return "Укажите репозиторий синхронизации (вкладка «Настройки»)";
+  if (!cfg.ghToken) return "Вставьте токен GitHub (вкладка «Настройки»)";
+  if (!cfg.pw) return "Введите пароль синхронизации (вкладка «Настройки»)";
   return "";
 }
 
@@ -165,17 +161,17 @@ async function sync() {
   $("syncBtn").classList.add("busy");
   $("syncText").textContent = "Синхронизирую…";
   try {
-    await ensureFolder("app:/");
-    await ensureFolder(INBOX);
     const pending = entries.filter((e) => e.mode === "send" && e.status === "pending");
     if (pending.length) {
       const payload = {
         f: FORMAT, sent: new Date().toISOString(), device: navigator.userAgent.slice(0, 80),
-        entries: pending.map((e) => ({ id: e.id, date: e.date, kind: e.kind, amount: e.amount, category: e.category,
-          note: e.note, half: e.half || null, row_id: e.row_id || null, created: e.created })),
+        entries: pending.map((e) => (e.kind === "bank"
+          ? { id: e.id, date: e.date, kind: "bank", real: e.real, diff: e.diff, record: e.record, created: e.created }
+          : { id: e.id, date: e.date, kind: e.kind, amount: e.amount, category: e.category,
+            note: e.note, half: e.half || null, row_id: e.row_id || null, created: e.created })),
       };
       const name = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14) + "-" + uid().slice(0, 8) + ".enc";
-      await upload(`${INBOX}/${name}`, await encryptObj(payload, cfg.pw));
+      await upload(`${INBOX}/${name}`, await encryptObj(payload, cfg.pw), "phone: " + pending.length);
       const now = new Date().toISOString();
       pending.forEach((e) => { e.status = "sent"; e.sent_at = now; });
       saveEntries();
@@ -194,7 +190,7 @@ async function sync() {
     }
     toast((pending.length ? `Отправлено: ${pending.length}` : "Новых записей для компьютера нет") + note, 4200);
   } catch (e) {
-    toast(e instanceof DiskError ? e.message : "Ошибка: " + e.message, 5200);
+    toast(e instanceof SyncError ? e.message : "Ошибка: " + e.message, 5200);
   } finally {
     syncing = false;
     $("syncBtn").classList.remove("busy");
@@ -202,33 +198,11 @@ async function sync() {
   }
 }
 
-/* ------------------------------------------------------------------ вход через Яндекс */
-function readAuthFromHash() {
+/* ------------------------------------------------------------------ настройки из ссылки */
+function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
-  let changed = false;
-  if (h.get("cid")) { cfg.cid = h.get("cid"); changed = true; }
-  if (h.get("access_token")) {
-    cfg.token = h.get("access_token");
-    const sec = Number(h.get("expires_in") || 0);
-    cfg.tokenUntil = sec ? Date.now() + sec * 1000 : 0;
-    changed = true;
-    setTimeout(() => toast("Вход в Яндекс выполнен ✓"), 300);
-  }
-  if (h.get("error")) setTimeout(() => toast("Яндекс: " + (h.get("error_description") || h.get("error"))), 300);
-  if (changed) saveCfg();
+  if (h.get("repo")) { cfg.repo = cleanRepo(h.get("repo")); saveCfg(); }
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
-}
-function login() {
-  const cid = $("cid").value.trim();
-  if (cid.length < 10) { toast("Вставьте номер приложения (ClientID) с oauth.yandex.ru"); return; }
-  cfg.cid = cid; saveCfg();
-  /* Яндекс показывает токен на своей странице (адрес возврата у приложения — отладочный, его не меняют):
-     открываем её, а здесь раскрываем поле, куда токен вставить. */
-  window.open("https://oauth.yandex.ru/authorize?" + new URLSearchParams({
-    response_type: "token", client_id: cid, force_confirm: "yes" }).toString(), "_blank");
-  const d = document.querySelector("#page-set details");
-  if (d) d.open = true;
-  toast("Разрешите доступ, скопируйте токен со страницы Яндекса и вставьте в поле «Токен»", 6000);
 }
 
 /* ------------------------------------------------------------------ форма записи */
@@ -257,7 +231,7 @@ function fillForm() {
     `<option value="${r.id}">${esc(r.name)} · ост. ${fmt(r.left)} (${esc(r.htitle.toLowerCase())})</option>`).join("");
   if (keepRow && rows.some((r) => String(r.id) === keepRow)) rowSel.value = keepRow;
   if (!$("date").value) $("date").value = todayISO();
-  document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.kind === kind));
+  document.querySelectorAll("#addForm .seg button").forEach((b) => b.classList.toggle("on", b.dataset.kind === kind));
   document.querySelectorAll(".dest button").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
   $("destHint").textContent = mode === "send"
     ? "Уйдёт в лист месяца на компьютере при синхронизации."
@@ -314,6 +288,7 @@ const ICON = {
   "_fund": '<ellipse cx="12" cy="13" rx="8" ry="6"/><path d="M9 9h5M7 18v3M17 18v3"/>',
   "_default": '<circle cx="12" cy="12" r="4"/>',
 };
+const ICON_BANK = '<svg viewBox="0 0 24 24"><path d="M3 10 12 4l9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>';
 function iconFor(e) {
   const k = e.kind === "income" ? "_income" : (e.category || "").startsWith("В фонд") ? "_fund"
     : ICON[e.category] ? e.category : "_default";
@@ -322,7 +297,7 @@ function iconFor(e) {
 
 /* ------------------------------------------------------------------ отрисовка */
 function badge(e) {
-  return { pending: '<span class="badge pending">ждёт отправки</span>', sent: '<span class="badge sent">на Диске</span>',
+  return { pending: '<span class="badge pending">ждёт отправки</span>', sent: '<span class="badge sent">отправлено</span>',
     done: '<span class="badge done">в листе ✓</span>', local: '<span class="badge local">только телефон</span>' }[e.status] || "";
 }
 function renderList() {
@@ -339,6 +314,12 @@ function renderList() {
       html += `<div class="sec">${ddmm(day)}${day === todayISO() ? " · сегодня" : ""}</div><div class="card" style="padding:0">`;
     }
     const half = e.half || autoHalf(e.date);
+    if (e.kind === "bank") {
+      html += `<div class="entry" data-id="${e.id}"><div class="ic">${ICON_BANK}</div><div class="mid">
+        <div class="t">Сверка с банком</div><div class="s">${esc(e.note)} ${badge(e)}</div></div>
+        <div class="sum">${e.record && e.diff ? (e.diff < 0 ? "−" : "+") + fmtExact(Math.abs(e.diff)) : ""}</div></div>`;
+      return;
+    }
     html += `<div class="entry" data-id="${e.id}"><div class="ic">${iconFor(e)}</div><div class="mid">
       <div class="t">${esc(e.note || e.category)}</div>
       <div class="s">${esc(e.category)}${e.row_name ? " · из «" + esc(e.row_name) + "»" : ""} · ${HALF_NAME[half]} ${badge(e)}</div></div>
@@ -412,15 +393,8 @@ function renderSummary() {
     }
     h += `</div>`;
   });
-  if (snap.funds && snap.funds.length) {
-    h += `<div class="sec">Фонды</div><div class="card">`;
-    snap.funds.forEach((f) => {
-      const pct = f.goal > 0 ? Math.min(100, (f.saved / f.goal) * 100) : 0;
-      h += `<div style="padding:5px 0"><div class="line" style="border:0;padding:0"><span>${esc(f.name)}</span><span class="r">${fmt(f.saved)}${f.goal ? ` <span class="muted">из ${fmt(f.goal)}</span>` : ""}</span></div>
-        ${f.goal ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}</div>`;
-    });
-    h += `</div>`;
-  }
+  h += `<div class="card"><h2>Сверка с банком</h2><p class="hint">${snap.bank && snap.bank.last_check ? "последняя — " + ddmm(snap.bank.last_check) : "ещё не делали"}</p>
+    <button class="ghost" type="button" data-go="bank">🏦 Сверить с банком</button></div>`;
   if (snap.payments && snap.payments.length) {
     h += `<div class="sec">Ближайшие платежи</div><div class="card">`;
     snap.payments.forEach((p) => { h += `<div class="line"><span>${ddmm(p.date)} · ${esc(p.name)}</span><span class="r">${fmt(p.amount)}</span></div>`; });
@@ -428,15 +402,233 @@ function renderSummary() {
   }
   $("summary").innerHTML = h;
 }
-function renderSettings() {
-  $("cid").value = cfg.cid || "";
-  const st = $("tokenStatus");
-  if (cfg.token && !(cfg.tokenUntil && Date.now() > cfg.tokenUntil)) {
-    const until = cfg.tokenUntil ? " до " + new Date(cfg.tokenUntil).toLocaleDateString("ru-RU") : "";
-    st.textContent = "Вход в Яндекс выполнен ✓" + until; st.className = "status ok";
-  } else {
-    st.textContent = cfg.token ? "Вход истёк — войдите снова" : "Ещё не вошли"; st.className = "status " + (cfg.token ? "bad" : "");
+/* ------------------------------------------------------------------ Лист месяца (как на компьютере) */
+let sheetIdx = 0, sheetMode = "cols";
+function rowActual(r) { return r.spent ? r.spent : (r.done ? r.amount : 0); }
+function phoneUnsentFor(sheet) {
+  /* записи с телефона «на компьютер», которых ещё нет в листе, — за этот бюджетный месяц */
+  const got = new Set((snap && snap.received) || []);
+  const from = `${sheet.year}-${String(sheet.month).padStart(2, "0")}-10`;
+  const nm = sheet.month === 12 ? `${sheet.year + 1}-01-09` : `${sheet.year}-${String(sheet.month + 1).padStart(2, "0")}-09`;
+  return entries.filter((e) => (e.kind === "expense" || e.kind === "income") && e.mode === "send" && e.status !== "done"
+    && !got.has(e.id) && e.date >= from && e.date <= nm);
+}
+function renderSheet() {
+  const box = $("sheet");
+  if (!snap || !snap.sheets) { box.innerHTML = `<div class="card empty">Лист появится после синхронизации с компьютером.</div>`; return; }
+  sheetIdx = Math.min(sheetIdx, snap.sheets.length - 1);
+  const sh = snap.sheets[sheetIdx];
+  let h = `<div class="filters">` + snap.sheets.map((x, i) =>
+    `<button type="button" class="chip ${i === sheetIdx ? "on" : ""}" data-sheet="${i}">${esc(x.title)}</button>`).join("") +
+    `</div><div class="seg" style="margin:-2px 0 10px"><button type="button" class="${sheetMode === "cols" ? "on" : ""}" data-mode2="cols">По колонкам</button>` +
+    `<button type="button" class="${sheetMode === "cats" ? "on" : ""}" data-mode2="cats">По категориям</button></div>`;
+  h += `<p class="hint" style="margin:-4px 4px 10px">${esc(sh.span)} · сводка от ${ddmm(snap.generated)} ${snap.generated.slice(11, 16)}</p>`;
+  const pend = phoneUnsentFor(sh);
+  if (pend.length) {
+    const sum = pend.reduce((a, e) => a + (e.kind === "expense" ? e.amount : 0), 0);
+    h += `<div class="card soft"><b>📱 С телефона, ещё не в листе: ${pend.length}</b>${sum ? ` · траты ${fmt(sum)}` : ""}
+      <div class="hint">появятся здесь после синхронизации и открытия программы на компьютере</div></div>`;
   }
+  if (sheetMode === "cats") {
+    const cats = new Map();
+    sh.halves.forEach((hf) => hf.rows.forEach((r) => {
+      if (r.credit && !cats.has(r.category)) cats.set(r.category, { plan: 0, fact: 0, n: 0 });
+      const c = cats.get(r.category) || { plan: 0, fact: 0, n: 0 };
+      c.plan += r.amount; c.fact += rowActual(r); c.n += 1; cats.set(r.category, c);
+    }));
+    pend.filter((e) => e.kind === "expense").forEach((e) => {
+      const c = cats.get(e.category) || { plan: 0, fact: 0, n: 0, phone: 0 };
+      c.phone = (c.phone || 0) + e.amount; cats.set(e.category, c);
+    });
+    const list = [...cats.entries()].sort((a, b) => (b[1].fact + (b[1].phone || 0)) - (a[1].fact + (a[1].phone || 0)));
+    const totalFact = list.reduce((a, [, c]) => a + c.fact, 0), totalPlan = list.reduce((a, [, c]) => a + c.plan, 0);
+    h += `<div class="card"><div class="line"><span><b>Потрачено</b></span><span class="r"><b>${fmt(totalFact)}</b> <span class="muted">из ${fmt(totalPlan)} по плану</span></span></div>`;
+    list.forEach(([name, c]) => {
+      const pct = c.plan > 0 ? Math.min(100, (c.fact / c.plan) * 100) : 100;
+      h += `<div style="padding:6px 0"><div class="line" style="border:0;padding:0"><span>${esc(name)}</span>
+        <span class="r">${fmt(c.fact)} <span class="muted">/ ${fmt(c.plan)}</span></span></div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        ${c.phone ? `<div class="hint" style="margin:2px 0 0">+ с телефона ${fmt(c.phone)}</div>` : ""}</div>`;
+    });
+    h += `</div>`;
+    const inc = new Map();
+    sh.halves.forEach((hf) => hf.incomes.forEach((r) => { if (!r.fund) inc.set(r.category, (inc.get(r.category) || 0) + r.amount); }));
+    if (inc.size) {
+      h += `<div class="sec">Доходы</div><div class="card">`;
+      [...inc.entries()].sort((a, b) => b[1] - a[1]).forEach(([n, v]) => { h += `<div class="line"><span>${esc(n)}</span><span class="r green">+${fmt(v)}</span></div>`; });
+      h += `</div>`;
+    }
+  } else {
+    sh.halves.forEach((hf) => {
+      h += `<div class="card"><div class="line" style="border:0"><h2 style="margin:0">${esc(hf.title)}</h2>
+        <span class="r ${hf.rest < 0 ? "red" : "green"}">остаток ${fmt(hf.rest)}</span></div>`;
+      if (hf.incomes.length) {
+        h += `<div class="sec" style="margin-top:6px">доход +${fmt(hf.income)}</div>`;
+        hf.incomes.forEach((r) => { h += `<div class="line"><span>${esc(r.name)}${r.fund ? ' <span class="muted">· из фонда</span>' : ""}</span><span class="r green">+${fmt(r.amount)}</span></div>`; });
+      }
+      h += `<div class="sec">расходы ${fmt(hf.expense)}</div>`;
+      if (!hf.rows.length) h += `<div class="hint">пока пусто</div>`;
+      let left = hf.income;
+      hf.rows.forEach((r) => {
+        if (!r.from_fund) left -= r.amount;
+        const fact = rowActual(r);
+        const st = r.done ? '<span class="dot green"></span>' : (r.spent ? '<span class="dot yellow"></span>' : '<span class="dot" style="background:#C9D6F8"></span>');
+        const extra = r.from_fund ? "из фонда" : (r.spent && !r.done ? `потрачено ${fmt(r.spent)}, ост. ${fmt(r.left)}`
+          : (r.spent && r.spent > r.amount + 0.5 ? "перерасход" : ""));
+        h += `<div class="line"><span>${st}${esc(r.name)}${extra ? `<div class="hint" style="margin:1px 0 0 16px">${extra}</div>` : ""}</span>
+          <span class="r">${fmt(r.amount)}<div class="hint" style="margin:1px 0 0;text-align:right">${left < 0 ? '<span class="red">' + fmt(left) + "</span>" : fmt(left)}</div></span></div>`;
+      });
+      h += `</div>`;
+    });
+    h += `<p class="hint center">● оплачено · ◐ тратится · ○ ещё нет. Справа под суммой — остаток колонки после строки.</p>`;
+  }
+  box.innerHTML = h;
+}
+
+/* ------------------------------------------------------------------ Фонды */
+function renderFunds() {
+  const box = $("funds");
+  if (!snap || !snap.funds) { box.innerHTML = `<div class="card empty">Фонды появятся после синхронизации с компьютером.</div>`; return; }
+  const total = snap.funds.reduce((a, f) => a + f.saved, 0);
+  const goals = snap.funds.reduce((a, f) => a + (f.goal || 0), 0);
+  const need = snap.funds.reduce((a, f) => a + (f.need || 0), 0);
+  let h = `<div class="card"><div class="line"><span>Всего накоплено</span><span class="r"><b>${fmt(total)}</b></span></div>
+    <div class="line"><span>Сумма целей</span><span class="r">${fmt(goals)}</span></div>
+    ${need ? `<div class="line"><span>В месяц на цели со сроком</span><span class="r">${fmt(need)}</span></div>` : ""}</div>`;
+  const got = new Set(snap.received || []);
+  snap.funds.forEach((f, i) => {
+    const pct = f.goal > 0 ? Math.min(100, (f.saved / f.goal) * 100) : 0;
+    const cat = `В фонд «${f.name}»`;
+    const pend = entries.filter((e) => e.category === cat && e.mode === "send" && e.status !== "done" && !got.has(e.id))
+      .reduce((a, e) => a + e.amount, 0);
+    let dl = "";
+    if (f.deadline) {
+      const d = f.deadline;
+      dl = `к ${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}` + (f.need != null && f.goal > f.saved ? ` · ≈ ${fmt(f.need)}/мес` : (f.goal && f.saved >= f.goal ? " · цель достигнута ✨" : ""));
+    } else dl = "бессрочный";
+    h += `<div class="card"><div class="line" style="border:0;padding:0"><h2 style="margin:0">${esc(f.name)}</h2>
+        ${f.place ? `<span class="badge sent">${esc(f.place)}</span>` : ""}</div>
+      <div class="big" style="margin-top:6px">${fmt(f.saved)}${f.goal ? ` <span class="muted" style="font-size:16px">из ${fmt(f.goal)} · ${Math.round(pct)}%</span>` : ""}</div>
+      ${f.goal ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}
+      <div class="hint">${esc(dl)}${f.auto ? ` · автоплатёж ${fmt(f.auto)} ${f.auto_day}-го` : ""}${f.planned ? ` · запланировано +${fmt(f.planned)}` : ""}</div>
+      ${pend ? `<div class="hint">📱 с телефона ждёт: +${fmt(pend)}</div>` : ""}
+      <button class="ghost" type="button" data-fund="${i}">＋ Пополнить</button></div>`;
+  });
+  box.innerHTML = h;
+}
+function topUpFund(i) {
+  const f = snap.funds[i];
+  kind = "expense";
+  showPage("add");
+  fillForm();
+  const cat = `В фонд «${f.name}»`;
+  if (!categories().includes(cat)) $("category").insertAdjacentHTML("beforeend", `<option>${esc(cat)}</option>`);
+  $("category").value = cat;
+  $("row").value = "";
+  $("note").value = "";
+  $("amount").focus();
+  toast(`Пополнение фонда «${f.name}» — впишите сумму`);
+}
+
+/* ------------------------------------------------------------------ Сверка с банком */
+function bankPending() {
+  /* траты/доходы с телефона «на компьютер», которых ещё нет в сводке (их нет в «должно быть») */
+  const got = new Set((snap && snap.received) || []);
+  const ym = todayISO().slice(0, 7);
+  let exp = 0, inc = 0, local = 0;
+  entries.forEach((e) => {
+    if (e.kind === "expense" && e.mode === "send" && e.status !== "done" && !got.has(e.id)) exp += e.amount;
+    if (e.kind === "income" && e.mode === "send" && e.status !== "done" && !got.has(e.id) && e.date <= todayISO()) inc += e.amount;
+    if (e.kind === "expense" && e.status === "local" && e.date.startsWith(ym)) local += e.amount;
+  });
+  return { exp, inc, local };
+}
+function renderBank() {
+  const box = $("bank");
+  const b = snap && snap.bank;
+  if (!b) { box.innerHTML = `<div class="card empty">Сверка появится после синхронизации с компьютером.</div>`; return; }
+  const keep = {};
+  box.querySelectorAll && box.querySelectorAll("input[data-acc]").forEach((i) => { keep[i.dataset.acc] = i.value; });
+  const pend = bankPending();
+  let h = `<div class="card"><p class="hint" style="margin-top:0">Впишите, сколько денег сейчас на каждом счёте (как в приложении банка).
+    Сводка с компьютера от ${ddmm(snap.generated)} ${snap.generated.slice(11, 16)} — перед сверкой лучше синхронизироваться.</p>`;
+  b.accounts.forEach((a) => {
+    const v = keep[a.key] !== undefined ? keep[a.key] : (a.last ? String(a.last).replace(".", ",") : "");
+    h += `<label class="field"><span>${esc(a.name)}</span><input data-acc="${a.key}" inputmode="decimal" placeholder="0" value="${esc(v)}"></label>`;
+  });
+  const useLocal = $("bankLocal") ? $("bankLocal").checked : false;
+  if (pend.local) h += `<label class="hint" style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="bankLocal" ${useLocal ? "checked" : ""}>
+    учесть траты «только на телефоне» этого месяца (${fmt(pend.local)}) — если платили с этих карт</label>`;
+  h += `</div><div id="bankOut"></div>`;
+  box.innerHTML = h;
+  box.querySelectorAll("input[data-acc], #bankLocal").forEach((i) => i.addEventListener("input", bankCalc));
+  if ($("bankLocal")) $("bankLocal").addEventListener("change", bankCalc);
+  bankCalc();
+}
+let bankDiff = 0, bankReal = {};
+function bankCalc() {
+  const b = snap.bank, pend = bankPending();
+  bankReal = {};
+  document.querySelectorAll("#bank input[data-acc]").forEach((i) => { bankReal[i.dataset.acc] = parseAmount(i.value || "0") || 0; });
+  const useLocal = $("bankLocal") && $("bankLocal").checked;
+  const lifeKeys = b.accounts.filter((a) => a.kind === "life").map((a) => a.key);
+  const lifeReal = lifeKeys.reduce((a, k) => a + (bankReal[k] || 0), 0);
+  const lifeExp = b.life - pend.exp + pend.inc - (useLocal ? pend.local : 0);
+  const verdict = (exp, real) => {
+    const d = Math.round((real - exp) * 100) / 100;
+    if (Math.abs(d) < 1) return '<span class="green">✓ сходится</span>';
+    return d < 0 ? `<span class="red">не хватает ${fmt(-d)}</span>` : `<span class="green">лишние ${fmt(d)}</span>`;
+  };
+  const names = b.accounts.filter((a) => a.kind === "life").map((a) => a.name).join(" + ");
+  let h = `<div class="card"><h2>Деньги на жизнь</h2><p class="hint" style="margin-top:0">${esc(names)}</p>
+    <div class="line"><span>Должно быть</span><span class="r">${fmt(lifeExp)}</span></div>
+    <div class="line"><span>На картах сейчас</span><span class="r">${fmt(lifeReal)}</span></div>
+    <div class="line"><span>Итог</span><span class="r">${verdict(lifeExp, lifeReal)}</span></div>
+    <details><summary>почему столько должно быть</summary><div class="hint">
+      ${b.start ? `было до зарплаты ${fmt(b.start)} + ` : ""}пришедший доход ${fmt(b.income)} − оплачено (● и ◐) ${fmt(b.paid)}
+      ${b.life_funds.map((f) => ` + фонд «${esc(f.name)}» (${esc(f.place)}) ${fmt(f.amount)}`).join("")}
+      ${pend.exp ? ` − траты с телефона, ещё не на компьютере, ${fmt(pend.exp)}` : ""}${pend.inc ? ` + доходы с телефона ${fmt(pend.inc)}` : ""}
+      ${useLocal && pend.local ? ` − траты только на телефоне ${fmt(pend.local)}` : ""}</div></details></div>`;
+  Object.entries(b.other || {}).forEach(([k, o]) => {
+    const acc = b.accounts.find((a) => a.key === k);
+    h += `<div class="card"><h2>${esc(acc ? acc.name : k)}</h2>
+      <div class="line"><span>Должно быть</span><span class="r">${fmt(o.expected)}</span></div>
+      <div class="line"><span>Есть</span><span class="r">${fmt(bankReal[k] || 0)}</span></div>
+      <div class="line"><span>Итог</span><span class="r">${verdict(o.expected, bankReal[k] || 0)}</span></div>
+      ${o.funds.length ? `<div class="hint">${o.funds.map((f) => `«${esc(f.name)}» ${fmt(f.amount)}`).join(", ")}</div>` : ""}
+      ${(bankReal[k] || 0) - o.expected >= 1 ? `<div class="hint">больше, чем в фондах, — наверное, проценты: добавьте их пополнением фонда.</div>` : ""}</div>`;
+  });
+  if (b.aside) h += `<p class="hint">✉️ В конвертах ${fmt(b.aside)} — не сверяется.</p>`;
+  bankDiff = lifeReal ? Math.round((lifeReal - lifeExp) * 100) / 100 : 0;
+  h += `<div class="card">`;
+  if (Math.abs(bankDiff) >= 1) {
+    h += `<p class="hint" style="margin-top:0">${bankDiff < 0 ? "Скорее всего, какие-то траты не записаны. Если не вспомнить — запишите разницу одной строкой."
+      : "Денег больше, чем по листу: возможно, что-то отмечено ●, но ещё не списалось, или пришёл доход, которого нет в листе."}</p>
+      <button class="primary" type="button" id="bankFix">${bankDiff < 0 ? `Записать ${fmt(-bankDiff)} как неучтённые траты` : `Записать +${fmt(bankDiff)} как неучтённый доход`}</button>`;
+  }
+  h += `<button class="ghost" type="button" id="bankSave" style="width:100%">Сохранить сверку (без записи разницы)</button>
+    <p class="hint">Уйдёт на компьютер при синхронизации: остатки счетов запомнятся, разница — если выбрали — появится в листе строкой ●.</p></div>`;
+  $("bankOut").innerHTML = h;
+  if ($("bankFix")) $("bankFix").addEventListener("click", () => bankSend(true));
+  $("bankSave").addEventListener("click", () => bankSend(false));
+}
+function bankSend(record) {
+  if (!Object.values(bankReal).some((v) => v > 0)) { toast("Впишите остатки счетов"); return; }
+  entries = entries.filter((e) => !(e.kind === "bank" && e.status === "pending"));   // одна сверка в очереди
+  entries.unshift({ id: uid(), created: new Date().toISOString(), date: todayISO(), kind: "bank", amount: Math.abs(bankDiff),
+    category: "Сверка с банком", note: record && Math.abs(bankDiff) >= 1 ? (bankDiff < 0 ? "неучтённые траты" : "неучтённый доход") : "остатки счетов",
+    real: bankReal, diff: record ? bankDiff : 0, record: !!record, half: 0, row_id: null, mode: "send", status: "pending" });
+  saveEntries();
+  toast("Сверка сохранена — нажмите «Синхронизировать», чтобы отправить на компьютер", 4500);
+  renderAll();
+  showPage("sum");
+}
+
+function renderSettings() {
+  $("repo").value = cfg.repo || "";
+  const st = $("tokenStatus");
+  st.textContent = cfg.ghToken ? "Токен сохранён на этом телефоне ✓" : "Токен ещё не вставлен";
+  st.className = "status " + (cfg.ghToken ? "ok" : "");
   $("pwStatus").textContent = cfg.pw ? "Пароль сохранён на этом телефоне ✓" : "Пароль не задан";
   $("pwStatus").className = "status " + (cfg.pw ? "ok" : "");
   const n = entries.length, p = entries.filter((e) => e.status === "pending").length, l = entries.filter((e) => e.status === "local").length;
@@ -455,6 +647,8 @@ function renderAll() {
   $("today").innerHTML = todayBlock();
   renderList();
   renderSummary();
+  renderSheet();
+  renderFunds();
   renderSettings();
   renderCount();
 }
@@ -470,7 +664,7 @@ function openEntry(id) {
   const canDelete = e.status !== "sent";
   bg.innerHTML = `<div class="sheet"><h2>${esc(e.note || e.category)} · ${fmtExact(e.amount)}</h2>
     <p class="hint">${ddmm(e.date)} · ${esc(e.category)} · ${HALF_NAME[e.half || autoHalf(e.date)]}</p>
-    ${e.status === "sent" ? '<p class="hint">Уже на Яндекс Диске — компьютер заберёт её при следующем запуске. Удалить отсюда нельзя: исправьте в программе на компьютере.</p>' : ""}
+    ${e.status === "sent" ? '<p class="hint">Уже отправлена — компьютер заберёт её при следующем запуске. Удалить отсюда нельзя: исправьте в программе на компьютере.</p>' : ""}
     ${e.status === "done" ? '<p class="hint">Уже записана в лист на компьютере. Удаление здесь уберёт её только из этого списка.</p>' : ""}
     ${canSend ? '<button class="primary" data-a="send">Отправить на компьютер</button>' : ""}
     ${canLocal ? '<button class="ghost" data-a="local">Оставить только на телефоне</button>' : ""}
@@ -492,11 +686,14 @@ function openEntry(id) {
 
 /* ------------------------------------------------------------------ навигация */
 const TITLES = { add: ["Записать", "трата уйдёт на компьютер по кнопке «Синхронизировать»"],
+  sheet: ["Лист месяца", "как на компьютере"], funds: ["Фонды", "копилки на цели"],
+  bank: ["Сверка", "с банком: сколько на картах"],
   list: ["Записи", "что записано на телефоне"], sum: ["Сводка", "с компьютера, после последней синхронизации"],
-  set: ["Настройки", "Яндекс Диск и пароль"] };
+  set: ["Настройки", "синхронизация и пароль"] };
 function showPage(p) {
   document.querySelectorAll(".page").forEach((s) => s.classList.toggle("active", s.id === "page-" + p));
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.page === p));
+  if (p === "bank") renderBank();
   $("title").textContent = TITLES[p][0];
   $("subtitle").textContent = TITLES[p][1];
   window.scrollTo(0, 0);
@@ -504,9 +701,9 @@ function showPage(p) {
 
 /* ------------------------------------------------------------------ запуск */
 function init() {
-  readAuthFromHash();
+  readHash();
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showPage(b.dataset.page)));
-  document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => { kind = b.dataset.kind; $("row").value = ""; fillForm(); }));
+  document.querySelectorAll("#addForm .seg button").forEach((b) => b.addEventListener("click", () => { kind = b.dataset.kind; $("row").value = ""; fillForm(); }));
   document.querySelectorAll(".dest button").forEach((b) => b.addEventListener("click", () => { mode = b.dataset.mode; fillForm(); }));
   document.querySelectorAll(".filters .chip").forEach((b) => b.addEventListener("click", () => {
     filter = b.dataset.f;
@@ -514,23 +711,29 @@ function init() {
     renderList();
   }));
   $("row").addEventListener("change", onRowChange);
+  $("setBtn").addEventListener("click", () => showPage("set"));
+  document.addEventListener("click", (ev) => {
+    const t = ev.target.closest ? ev.target.closest("[data-sheet],[data-mode2],[data-fund],[data-go]") : null;
+    if (!t) return;
+    if (t.dataset.sheet !== undefined) { sheetIdx = Number(t.dataset.sheet); renderSheet(); }
+    else if (t.dataset.mode2) { sheetMode = t.dataset.mode2; renderSheet(); }
+    else if (t.dataset.fund !== undefined) topUpFund(Number(t.dataset.fund));
+    else if (t.dataset.go) showPage(t.dataset.go);
+  });
   $("addForm").addEventListener("submit", onSubmit);
   $("syncBtn").addEventListener("click", sync);
   $("list").addEventListener("click", (ev) => { const el = ev.target.closest(".entry"); if (el) openEntry(el.dataset.id); });
-  $("loginBtn").addEventListener("click", login);
-  $("tokenGet").addEventListener("click", () => {
-    const cid = $("cid").value.trim();
-    if (cid.length < 10) { toast("Сначала вставьте номер приложения (ClientID)"); return; }
-    cfg.cid = cid; saveCfg();
-    window.open("https://oauth.yandex.ru/authorize?" + new URLSearchParams({ response_type: "token", client_id: cid,
-      force_confirm: "yes" }).toString(), "_blank");
-  });
-  $("tokenSave").addEventListener("click", () => {
-    let t = $("tokenManual").value.trim();
-    const m = t.match(/access_token=([^&]+)/);
-    if (m) t = decodeURIComponent(m[1]);
-    if (t.length < 20) { toast("Это не похоже на токен"); return; }
-    cfg.token = t; cfg.tokenUntil = 0; saveCfg(); $("tokenManual").value = ""; renderSettings(); toast("Токен сохранён");
+  $("tokenPage").addEventListener("click", (ev) => { ev.preventDefault(); window.open(TOKEN_PAGE, "_blank"); });
+  $("ghSave").addEventListener("click", () => {
+    const repo = cleanRepo($("repo").value);
+    const tok = $("ghToken").value.trim();
+    if (!repo.includes("/")) { toast("Репозиторий — в виде «логин/finance-sync»"); return; }
+    cfg.repo = repo;
+    if (tok) {
+      if (tok.length < 20) { toast("Это не похоже на токен GitHub"); return; }
+      cfg.ghToken = tok;
+    }
+    saveCfg(); $("ghToken").value = ""; renderSettings(); toast("Сохранено");
   });
   $("pwSave").addEventListener("click", () => {
     const v = $("pw").value;
@@ -540,15 +743,16 @@ function init() {
   $("testBtn").addEventListener("click", async () => {
     const s = $("testStatus");
     const why = needSetup();
-    if (why && !cfg.token) { s.textContent = why; s.className = "status bad"; return; }
+    if (why && !(cfg.repo && cfg.ghToken)) { s.textContent = why; s.className = "status bad"; return; }
     s.textContent = "Проверяю…"; s.className = "status";
     try {
-      await ensureFolder("app:/");
-      await ensureFolder(INBOX);
+      const { status, data } = await gh("GET", null);
+      if (status !== 200) throw new SyncError("GitHub ответил ошибкой (" + (data.message || status) + ")");
+      if (!data.private) throw new SyncError("Репозиторий публичный — сделайте его приватным на GitHub");
       const text = await download(SNAPSHOT);
-      if (text && cfg.pw) { await decryptText(text, cfg.pw); s.textContent = "Всё работает ✓ Диск на связи, сводка открывается паролем."; }
-      else if (text) s.textContent = "Диск на связи ✓ Введите пароль, чтобы открыть сводку.";
-      else s.textContent = "Диск на связи ✓ Сводки ещё нет — откройте программу на компьютере.";
+      if (text && cfg.pw) { await decryptText(text, cfg.pw); s.textContent = "Всё работает ✓ GitHub на связи, сводка открывается паролем."; }
+      else if (text) s.textContent = "GitHub на связи ✓ Введите пароль, чтобы открыть сводку.";
+      else s.textContent = "GitHub на связи ✓ Сводки ещё нет — откройте программу на компьютере.";
       s.className = "status ok";
     } catch (e) { s.textContent = e.message; s.className = "status bad"; }
   });
@@ -562,6 +766,6 @@ function init() {
   renderAll();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
-  if (!cfg.token || !cfg.pw) showPage(cfg.cid ? "set" : "add");
+  if (needSetup()) showPage("set");
 }
 document.addEventListener("DOMContentLoaded", init);
