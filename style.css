@@ -185,3 +185,38 @@ h1 { font-size: 25px; white-space: nowrap; overflow: hidden; text-overflow: elli
 .center { text-align: center; }
 [hidden] { display: none !important; }
 .keys button { width: 74px; height: 74px; justify-self: center; }
+
+/* ---- обновлённая навигация: компактная кнопка синхронизации, «+» по центру */
+#syncText { display: none !important; }
+.sync { width: 44px; height: 44px; padding: 0; justify-content: center; border-radius: 50%; position: relative; flex: none; }
+.sync svg { width: 21px; height: 21px; }
+.sync .count { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; line-height: 18px;
+  padding: 0 4px; font-size: 11px; text-align: center; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.gear { width: 44px; height: 44px; }
+h1 { font-size: 27px; }
+.tabs { align-items: flex-end; }
+.tabs .plus { color: var(--blue); }
+.tabs .plus span { width: 52px; height: 52px; margin-top: -26px; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--blue2), var(--blue)); box-shadow: 0 6px 18px rgba(111, 143, 234, .45);
+  border: 3px solid var(--paper); }
+.tabs .plus span svg { width: 26px; height: 26px; stroke: #fff; stroke-width: 2.2; }
+.tabs .plus.on { background: transparent; }
+/* ---- операции */
+.search { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 14px;
+  padding: 0 12px; margin-bottom: 10px; }
+.search svg { width: 19px; height: 19px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; flex: none; }
+.search input { flex: 1; border: 0; outline: none; background: transparent; padding: 11px 0; font-size: 16px; }
+.day-head { display: flex; justify-content: space-between; align-items: baseline; margin: 16px 4px 8px; }
+.day-head .sec { margin: 0; }
+.day-head .tot { font-size: 13px; color: var(--muted); }
+.totals { display: flex; gap: 10px; margin-bottom: 4px; }
+.totals .card { flex: 1; margin-bottom: 10px; padding: 12px 14px; }
+.totals .k { font-size: 12px; color: var(--muted); }
+.totals .v { font-size: 20px; margin-top: 2px; }
+.entry.tap:active { background: rgba(188, 205, 248, .25); }
+.spend-list { margin: 10px 0 4px; border-top: 1px dashed var(--line); }
+.spend-list .line { font-size: 14px; }
+
+/* данные с ноутбука устарели */
+.card.warn { background: #FFF4E0; border-color: #F2C77B; }
+.card.warn b { color: #8A5A00; }
