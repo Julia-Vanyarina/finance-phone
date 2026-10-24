@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.10.24-b";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.10.24-c";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -520,7 +520,7 @@ function renderOps() {
   if (q) ops = ops.filter((o) => `${o.title} ${o.sub} ${o.cat}`.toLowerCase().includes(q));
   const spent = ops.filter((o) => !o.inc && !o.fund).reduce((a, o) => a + o.amount, 0);
   const got = ops.filter((o) => o.inc && !o.refund).reduce((a, o) => a + o.amount, 0);
-  let h = `<div class="totals"><div class="card"><div class="k">Траты${q ? " (найдено)" : ""}</div><div class="v">${fmt(spent)}</div></div>
+  let h = (opsIdx === 0 && !q ? lastSpendsCard() : "") + `<div class="totals"><div class="card"><div class="k">Траты${q ? " (найдено)" : ""}</div><div class="v">${fmt(spent)}</div></div>
     <div class="card"><div class="k">Доходы</div><div class="v green">+${fmt(got)}</div></div></div>`;
   if (!ops.length) { box.innerHTML = h + `<div class="card empty">Ничего не нашлось</div>`; return; }
   let day = "";
@@ -598,7 +598,7 @@ function renderSummary() {
   }
   const imp = importantItems();
   const impLine = (r) => `<div class="line"><span>${esc(r.icon)} ${esc(r.text)}</span></div>`;
-  let h = updateBanner() + staleBanner();
+  let h = updateBanner() + staleBanner() + lastSpendsCard();
   h += imp.length ? `<div class="card soft"><h2>🔔 Важное</h2>${imp.slice(0, 4).map(impLine).join("")}` +
     (imp.length > 4 ? `<details><summary>ещё ${imp.length - 4}</summary>${imp.slice(4).map(impLine).join("")}</details>` : "") + `</div>` : "";
   h += `<div class="card">${todayBlock()}${snap.cards != null ? `<div class="line"><span>На картах должно быть</span><span class="r">${fmt(snap.cards)}</span></div>` : ""}</div>`;
@@ -1166,6 +1166,30 @@ function updateBanner() {
   return `<div class="card warn"><b>✨ Вышла новая версия приложения — ${esc(newVersion)}</b>
     <div class="hint" style="margin-top:4px">У вас открыта ${esc(VERSION)}. Записи и настройки останутся на месте.</div>
     <button type="button" style="margin-top:8px" onclick="applyUpdate()">Обновить сейчас</button></div>`;
+}
+/* ------------------------------------------------------------------ последние записанные траты */
+function lastSpends(n = 4) {
+  /* траты в листе (из сводки ноутбука) + траты с телефона, которые ещё не в листе; новые по дате сверху */
+  const out = ((snap && snap.last_spends) || []).map((x) => ({ ...x, phone: false }));
+  entries.filter((e) => e.kind === "expense" && !e.deleted && e.status !== "done")
+    .forEach((e) => out.push({ date: e.date, name: e.note || e.row_name || e.category, amount: e.amount,
+      created: String(e.created || "").replace("T", " ").slice(0, 16), phone: true }));
+  out.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (a.created < b.created ? 1 : a.created > b.created ? -1 : 0)));
+  return out.slice(0, n);
+}
+function lastSpendsCard() {
+  const list = lastSpends();
+  if (!list.length) return "";
+  const f = list[0];
+  const when = (x) => (x.created && x.created.slice(0, 10) !== x.date ? ` · внесено ${ddmm(x.created.slice(0, 10))}` : "") +
+    (x.created && x.created.length >= 16 ? ` в ${x.created.slice(11, 16)}` : "");
+  let h = `<div class="card"><h2>🧾 Последнее, что записано</h2>
+    <p class="hint">В банке смотрите операции <b>после ${ddmm(f.date)} — «${esc(f.name)}» ${fmt(f.amount)}</b>: что раньше, уже записано.</p>`;
+  list.forEach((x) => {
+    h += `<div class="line"><span>${ddmm(x.date)} · ${esc(x.name)}<span class="hint">${x.phone ? " · 📱 с телефона" : ""}${when(x)}</span></span>
+      <span class="r">−${fmt(x.amount)}</span></div>`;
+  });
+  return h + "</div>";
 }
 function staleBanner() {
   const h = snapAgeH();
