@@ -1,5 +1,5 @@
 /* Офлайн: приложение открывается и без интернета. Запросы к Яндексу не кэшируются. */
-const CACHE = "mf-phone-v12";
+const CACHE = "mf-phone-v13";
 const SHELL = ["./", "index.html", "app.js", "style.css", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

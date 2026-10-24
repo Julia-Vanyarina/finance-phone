@@ -82,7 +82,16 @@ function toast(text, ms = 3200) {
   toastTimer = setTimeout(() => { t.hidden = true; }, ms);
 }
 /* колонка по дате, как на компьютере: 10–24 — с зарплаты, 25–9 — с аванса */
-function autoHalf(iso) { const d = Number(iso.slice(8, 10)); return d >= 10 && d <= 24 ? 1 : 2; }
+/* колонка по дате: с зарплаты (10-го) до аванса (25-го); выплату на выходных дают раньше — дни берём из сводки.
+   Доход «Аванс» — всегда «с аванса», «Зарплата» — «с зарплаты». */
+function autoHalf(iso, cat) {
+  const c = String(cat || "").toLowerCase();
+  if (c.includes("аванс")) return 2;
+  if (c.includes("зарплат")) return 1;
+  const p = snap && snap.paydays && snap.paydays[iso.slice(0, 7)];
+  if (p) return iso >= p[1] ? 2 : iso >= p[0] ? 1 : 2;
+  const d = Number(iso.slice(8, 10)); return d >= 10 && d <= 24 ? 1 : 2;
+}
 const HALF_NAME = { 1: "с зарплаты", 2: "с аванса" };
 
 /* ------------------------------------------------------------------ шифрование */
@@ -445,7 +454,7 @@ function badge(e) {
     done: '<span class="badge done">в листе ✓</span>', local: '<span class="badge local">только телефон</span>' }[e.status] || "";
 }
 function phoneEntryHtml(e) {
-  const half = e.half || autoHalf(e.date);
+  const half = e.half || autoHalf(e.date, e.kind === "income" ? e.category : "");
   if (e.kind === "done" || e.kind === "fundpay") {
     const t = e.kind === "done" ? `Оплачено ● «${esc(e.row_name)}»` : `Из фонда «${esc(e.fund)}» · ${esc(e.note || e.category)}`;
     const sub = e.kind === "done" ? "отметка в листе" : esc(e.category);
@@ -898,7 +907,7 @@ function openEntry(id) {
   const title = e.kind === "done" ? `Оплачено ● «${esc(e.row_name)}»` : e.kind === "fundpay" ? `Из фонда «${esc(e.fund)}» · ${fmtExact(e.amount)}`
     : e.kind === "bank" ? "Сверка с банком" : `${esc(e.note || e.category)} · ${fmtExact(e.amount)}`;
   bg.innerHTML = `<div class="sheet"><h2>${title}</h2>
-    <p class="hint">${ddmm(e.date)} · ${esc(e.category || "")}${e.kind === "expense" || e.kind === "income" ? " · " + HALF_NAME[e.half || autoHalf(e.date)] : ""}</p>
+    <p class="hint">${ddmm(e.date)} · ${esc(e.category || "")}${e.kind === "expense" || e.kind === "income" ? " · " + HALF_NAME[e.half || autoHalf(e.date, e.kind === "income" ? e.category : "")] : ""}</p>
     ${canEdit ? '<button class="primary" data-a="edit">Изменить</button>' : ""}
     ${e.status === "sent" ? '<p class="hint">Отправлена, но ещё не в листе — её можно изменить или удалить: исправление тоже уйдёт на компьютер. Если компьютер успел записать её раньше, он напомнит поправить лист вручную.</p>' : ""}
     ${e.status === "done" ? '<p class="hint">Уже записана в лист на компьютере. Удаление здесь уберёт её только из этого списка.</p>' : ""}
