@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.10.24-c";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.10.24-d";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -1170,7 +1170,13 @@ function updateBanner() {
 /* ------------------------------------------------------------------ последние записанные траты */
 function lastSpends(n = 4) {
   /* траты в листе (из сводки ноутбука) + траты с телефона, которые ещё не в листе; новые по дате сверху */
-  const out = ((snap && snap.last_spends) || []).map((x) => ({ ...x, phone: false }));
+  let out = ((snap && snap.last_spends) || []).map((x) => ({ ...x, phone: false }));
+  if (!out.length && snap && snap.sheets) {
+    /* ноутбук ещё старой версии и не прислал список — берём траты из листов (без времени записи) */
+    const today = todayISO();
+    snap.sheets.slice(0, 2).forEach((sh) => buildOps(sh).filter((o) => !o.inc && !o.fund && o.date <= today)
+      .forEach((o) => out.push({ date: o.date, name: o.title, amount: o.amount, created: "", phone: false })));
+  }
   entries.filter((e) => e.kind === "expense" && !e.deleted && e.status !== "done")
     .forEach((e) => out.push({ date: e.date, name: e.note || e.row_name || e.category, amount: e.amount,
       created: String(e.created || "").replace("T", " ").slice(0, 16), phone: true }));
