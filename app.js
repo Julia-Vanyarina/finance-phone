@@ -5,7 +5,8 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "1.0";
+const VERSION = "2026.10.24-b";          // поднимать вместе с version.json и CACHE в sw.js
+let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
 const API = "https://api.github.com";
@@ -592,12 +593,12 @@ function todayBlock() {
 }
 function renderSummary() {
   if (!snap) {
-    $("summary").innerHTML = `<div class="card empty">Сводка появится после первой синхронизации.<br>На компьютере: «☰ Ещё → 📲 Телефон → Настроить».</div>`;
+    $("summary").innerHTML = updateBanner() + `<div class="card empty">Сводка появится после первой синхронизации.<br>На компьютере: «☰ Ещё → 📲 Телефон → Настроить».</div>`;
     return;
   }
   const imp = importantItems();
   const impLine = (r) => `<div class="line"><span>${esc(r.icon)} ${esc(r.text)}</span></div>`;
-  let h = staleBanner();
+  let h = updateBanner() + staleBanner();
   h += imp.length ? `<div class="card soft"><h2>🔔 Важное</h2>${imp.slice(0, 4).map(impLine).join("")}` +
     (imp.length > 4 ? `<details><summary>ещё ${imp.length - 4}</summary>${imp.slice(4).map(impLine).join("")}</details>` : "") + `</div>` : "";
   h += `<div class="card">${todayBlock()}${snap.cards != null ? `<div class="line"><span>На картах должно быть</span><span class="r">${fmt(snap.cards)}</span></div>` : ""}</div>`;
@@ -873,7 +874,8 @@ function renderSettings() {
   const n = entries.length, p = entries.filter((e) => e.status === "pending").length, l = entries.filter((e) => e.status === "local").length;
   $("storageInfo").textContent = `На телефоне записей: ${n} (ждут отправки: ${p}, только на телефоне: ${l}). ` +
     "Чтобы iPhone не стёр данные, пользуйтесь приложением с экрана «Домой» (Поделиться → На экран «Домой»).";
-  $("ver").textContent = VERSION;
+  $("ver").textContent = VERSION + (newVersion ? " · есть новая " + newVersion : "");
+  $("updBtn").textContent = newVersion ? "Обновить до " + newVersion : "Проверить обновления";
 }
 function renderCount() {
   const p = entries.filter((e) => e.status === "pending").length;
@@ -1134,6 +1136,37 @@ function syncStamp() {
   if (cfg.lastSync) parts.push(`синхр. ${new Date(cfg.lastSync).toTimeString().slice(0, 5)}`);
   return parts.length ? parts.join(" · ") : "ещё не синхронизировано";
 }
+/* ------------------------------------------------------------------ обновление приложения */
+async function checkUpdate(manual) {
+  try {
+    const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const v = String((await r.json()).v || "");
+    const was = newVersion;
+    newVersion = v && v !== VERSION ? v : "";
+    if (newVersion !== was) renderAll();
+    if (manual) toast(newVersion ? "Есть новая версия " + newVersion : "У вас последняя версия ✓");
+  } catch (e) {
+    if (manual) toast("Не получилось проверить — нет интернета?");
+  }
+}
+async function applyUpdate() {
+  toast("Обновляю…");
+  try {
+    if ("caches" in window) for (const k of await caches.keys()) await caches.delete(k);
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update().catch(() => {});
+    }
+  } catch (e) { /* всё равно перезагрузим */ }
+  location.replace(location.pathname + "?u=" + Date.now());
+}
+function updateBanner() {
+  if (!newVersion) return "";
+  return `<div class="card warn"><b>✨ Вышла новая версия приложения — ${esc(newVersion)}</b>
+    <div class="hint" style="margin-top:4px">У вас открыта ${esc(VERSION)}. Записи и настройки останутся на месте.</div>
+    <button type="button" style="margin-top:8px" onclick="applyUpdate()">Обновить сейчас</button></div>`;
+}
 function staleBanner() {
   const h = snapAgeH();
   if (h == null || h < 6) return "";
@@ -1246,16 +1279,18 @@ function init() {
   $("pinForgot").addEventListener("click", (ev) => { ev.preventDefault(); pinForgot(); });
   $("pinBtn").addEventListener("click", pinSetupDialog);
   $("pinOff").addEventListener("click", pinRemove);
+  $("updBtn").addEventListener("click", () => (newVersion ? applyUpdate() : checkUpdate(true)));
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     if (cfg.pinOn && !locked && hiddenAt && Date.now() - hiddenAt > 60000) { lockNow(); return; }
-    if (!locked && hiddenAt && Date.now() - hiddenAt > 30000) autoSync(500);     // вернулись в приложение — обновим
+    if (!locked && hiddenAt && Date.now() - hiddenAt > 30000) { autoSync(500); checkUpdate(false); }   // вернулись — обновим
   });
   window.addEventListener("online", () => autoSync(800));
   if (cfg.pinOn) { snap = null; lockNow(); }
   renderAll();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  setTimeout(() => checkUpdate(false), 1500);
   if (!locked) { if (needSetup()) showPage("set"); else { showPage("sum"); autoSync(600); } }
 }
 document.addEventListener("DOMContentLoaded", init);
