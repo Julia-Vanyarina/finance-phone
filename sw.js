@@ -1,5 +1,5 @@
 /* Офлайн: приложение открывается и без интернета. Запросы к Яндексу не кэшируются. */
-const CACHE = "mf-phone-v32";
+const CACHE = "mf-phone-v33";
 const SHELL = ["./", "index.html", "config.js", "app.js", "style.css", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 // version.json не кэшируется: по нему приложение узнаёт, что на GitHub есть версия новее
 

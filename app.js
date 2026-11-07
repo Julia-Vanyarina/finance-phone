@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.08-e";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.08-g";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -930,6 +930,7 @@ function bankCalc() {
     <details><summary>почему столько должно быть</summary><div class="hint">
       ${b.start ? `было до зарплаты ${fmt(b.start)} + ` : ""}пришедший доход ${fmt(b.income)} − оплачено (● и ◐) ${fmt(b.paid)}
       ${b.life_funds.map((f) => ` + фонд «${esc(f.name)}» (${esc(f.place)}) ${fmt(f.amount)}`).join("")}
+      ${b.early ? ` ${b.early > 0 ? "+" : "−"} из листа следующего месяца (пришло или оплачено заранее) ${fmt(Math.abs(b.early))}` : ""}
       ${pend.exp ? ` − траты с телефона, ещё не на компьютере, ${fmt(pend.exp)}` : ""}${pend.inc ? ` + доходы с телефона ${fmt(pend.inc)}` : ""}
       ${useLocal && pend.local ? ` − траты только на телефоне ${fmt(pend.local)}` : ""}</div></details></div>`;
   Object.entries(b.other || {}).forEach(([k, o]) => {
