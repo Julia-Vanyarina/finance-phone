@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.08-b";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.08-e";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -893,7 +893,7 @@ function renderBank() {
   const keep = {};
   box.querySelectorAll && box.querySelectorAll("input[data-acc]").forEach((i) => { keep[i.dataset.acc] = i.value; });
   const pend = bankPending();
-  let h = `<div class="card"><p class="hint" style="margin-top:0">Впишите, сколько денег сейчас на каждом счёте (как в приложении банка).
+  let h = `<div class="card"><p class="hint" style="margin-top:0">Впишите, сколько денег сейчас на каждом счёте (как в приложении банка) и сколько наличных.
     Сводка с компьютера от ${ddmm(snap.generated)} ${snap.generated.slice(11, 16)} — перед сверкой лучше синхронизироваться.</p>`;
   b.accounts.forEach((a) => {
     const v = keep[a.key] !== undefined ? keep[a.key] : (a.last ? String(a.last).replace(".", ",") : "");
@@ -1998,7 +1998,7 @@ function exportCalendar() {
 const TITLES = { add: ["Записать", "трата или доход"],
   sheet: ["Лист месяца", "как на компьютере"], funds: ["Фонды", "копилки на цели"],
   more: ["Ещё", "фонды, здоровье, календарь"],
-  bank: ["Сверка", "с банком: сколько на картах"], ops: ["Операции", "всё, что записано, новые сверху"],
+  bank: ["Сверка", "с банком: карты и наличные"], ops: ["Операции", "всё, что записано, новые сверху"],
   sum: ["Главная", ""], set: ["Настройки", "синхронизация, PIN, уведомления"] };
 function whenText(iso) {
   /* «сегодня в 13:40», «вчера в 21:05», «19.10 в 08:30» */
