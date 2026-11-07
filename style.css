@@ -220,3 +220,63 @@ h1 { font-size: 27px; }
 /* данные с ноутбука устарели */
 .card.warn { background: #FFF4E0; border-color: #F2C77B; }
 .card.warn b { color: #8A5A00; }
+
+/* ---------- «Ещё»: здоровье и календарь */
+.more-seg { margin-bottom: 14px; }
+.more-seg button { font-size: 11.5px; padding: 9px 1px; white-space: nowrap; }
+.cyc-big { font-size: 30px; line-height: 1.1; }
+.cyc-row { display: flex; gap: 4px; margin: 8px -4px 4px; overflow-x: auto; padding: 4px 4px 2px; }
+.cyc-d { flex: 0 0 34px; text-align: center; font-size: 11px; color: var(--muted); }
+.cyc-d b { display: block; width: 30px; height: 30px; line-height: 30px; margin: 0 auto 2px; border-radius: 50%;
+  font-weight: 400; font-size: 13px; color: var(--ink); background: #fff; border: 1px solid var(--line); }
+.cyc-d.period b { background: #F48FB1; color: #fff; border-color: #F48FB1; }
+.cyc-d.pred b { background: #FCE1EA; border-color: #F7B8CC; }
+.cyc-d.fertile b { background: #D9F2EE; border-color: #A9DCD3; }
+.cyc-d.ovulation b { background: #8FD3C7; color: #fff; border-color: #8FD3C7; }
+.cyc-d.today b { box-shadow: 0 0 0 2px var(--blue); }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.btn-row button { flex: 1; }
+.item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px dashed var(--line); }
+.item:first-of-type { border-top: 0; }
+.item .ic { flex: 0 0 26px; height: 26px; border-radius: 50%; border: 2px solid var(--blue2); text-align: center;
+  line-height: 22px; font-size: 13px; color: #fff; }
+.item .ic.done { background: var(--green); border-color: var(--green); }
+.item .ic.booked { border-color: var(--green); color: var(--green); }
+.item .tx { flex: 1; min-width: 0; }
+.item .tx .s { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.item .tx .said { font-size: 12px; margin-top: 3px; }
+.item .am { text-align: right; white-space: nowrap; }
+.item .am .s { color: var(--muted); font-size: 11px; }
+.bar { height: 7px; background: var(--soft); border-radius: 999px; overflow: hidden; margin: 8px 0; }
+.bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue2), var(--blue)); border-radius: 999px; }
+.diag { background: rgba(227, 234, 252, .7); border-radius: 12px; padding: 8px 10px; font-size: 13px; margin: 6px 0; white-space: pre-line; }
+.dchip { flex: 0 0 44px; text-align: center; background: var(--soft); border-radius: 10px; padding: 4px 0; line-height: 1.1; }
+.dchip b { display: block; font-size: 17px; font-weight: 700; }
+.dchip span { font-size: 11px; color: var(--muted); }
+.dchip.soon { background: #FBDCE4; color: #B4475F; }
+.dchip.soon span { color: #B4475F; }
+/* календарь */
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cal-head button { border: 1px solid var(--line); background: #fff; border-radius: 999px; width: 38px; height: 34px; color: var(--blue); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-grid .wd { text-align: center; font-size: 11px; color: var(--muted); padding: 2px 0; }
+.cal-grid .cd { position: relative; aspect-ratio: 1 / 1; border-radius: 10px; border: 0; background: rgba(255, 255, 255, .7);
+  font-size: 14px; padding: 0; color: var(--ink); }
+.cal-grid .cd.off { background: #FBE3E8; color: #B4475F; }
+.cal-grid .cd.short { background: #FFF1C9; }
+.cal-grid .cd.office { background: #DCE6FD; }
+.cal-grid .cd.remote { background: #FDE6D3; }
+.cal-grid .cd.vac { background: #DDF3E6; }
+.cal-grid .cd.today { box-shadow: inset 0 0 0 2px var(--ink); }
+.cal-grid .cd.sel { box-shadow: inset 0 0 0 2px var(--blue); }
+.cal-grid .cd.imp { outline: 2px solid #B79AF0; outline-offset: -4px; }
+.cal-grid .cd .dots { position: absolute; left: 0; right: 0; bottom: 4px; display: flex; justify-content: center; gap: 2px; }
+.cal-grid .cd .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--blue); }
+.cal-grid .cd .dots i.pay { background: var(--green); }
+.cal-grid .cd .dots i.debt { background: var(--red); }
+.cal-grid .blank { aspect-ratio: 1 / 1; }
+
+.ghost.small, button.small { padding: 4px 10px; font-size: 13px; width: auto; flex: 0 0 auto; }
+.item .tx .badge { font-size: 11px; }

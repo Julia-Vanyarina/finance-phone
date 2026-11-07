@@ -91,14 +91,29 @@
 
       <button class="primary" type="submit" id="submitBtn">Записать</button>
     </form>
+    <button type="button" class="ghost" id="pasteBtn" style="margin:0 0 8px">📋 Вставить из банка или заметок</button>
+    <button type="button" class="ghost" id="instBtn" style="margin:0 0 12px">🛍 Купила в Сплит / рассрочку</button>
     <div id="today" class="card soft"></div>
   </section>
 
   <!-- ======================= Лист месяца -->
   <section id="page-sheet" class="page"><div id="sheet"></div></section>
 
-  <!-- ======================= Фонды -->
-  <section id="page-funds" class="page"><div id="funds"></div></section>
+  <!-- ======================= Ещё: фонды, здоровье, календарь -->
+  <section id="page-more" class="page">
+    <div class="seg more-seg">
+      <button type="button" data-more="funds">🐷 Фонды</button>
+      <button type="button" data-more="health">🩺 Здоровье</button>
+      <button type="button" data-more="cal">📅 Календарь</button>
+      <button type="button" data-more="occ">🎉 Поводы</button>
+      <button type="button" data-more="wallet">💼 До з/п</button>
+    </div>
+    <div id="funds" class="more-pane"></div>
+    <div id="health" class="more-pane" hidden></div>
+    <div id="cal" class="more-pane" hidden></div>
+    <div id="occ" class="more-pane" hidden></div>
+    <div id="wallet" class="more-pane" hidden></div>
+  </section>
 
   <!-- ======================= Сверка с банком -->
   <section id="page-bank" class="page"><div id="bank"></div></section>
@@ -125,7 +140,16 @@
 
   <!-- ======================= Настройки -->
   <section id="page-set" class="page">
-    <div class="card">
+    <div class="card srv-only" hidden>
+      <h2>Вход на сервер</h2>
+      <p class="hint">Сервер: <b id="srvHost"></b>. Записи сразу попадают в лист, свежие данные — без ноутбука.
+        Пароль — тот, что задавали при установке сервера. На телефоне он не хранится: сервер выдаёт этому телефону свой ключ.</p>
+      <label class="field"><span>Пароль</span><input id="srvPw" type="password" autocomplete="current-password"></label>
+      <button class="primary" type="button" id="srvLogin">Войти</button>
+      <button class="ghost danger" type="button" id="srvLogout" hidden>Отключить телефон от сервера</button>
+      <p class="status" id="srvStatus"></p>
+    </div>
+    <div class="card gh-only">
       <h2>GitHub</h2>
       <p class="hint">Записи и сводка ходят через ваш приватный репозиторий и зашифрованы паролем — GitHub видит только набор символов.</p>
       <label class="field"><span>Репозиторий синхронизации</span><input id="repo" placeholder="логин/finance-sync" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
@@ -135,7 +159,7 @@
       <p class="hint">Токен проще всего скопировать на компьютере: «📲 Телефон → Настроить → Скопировать токен» и прислать себе.
         Или создать отдельный: <a href="#" id="tokenPage">страница токенов GitHub</a>.</p>
     </div>
-    <div class="card">
+    <div class="card gh-only">
       <h2>Пароль синхронизации</h2>
       <p class="hint">Тот же, что в программе на компьютере («☰ Ещё → 📲 Телефон → Настроить»). Без него ничего не прочитать.</p>
       <label class="field"><span>Пароль</span><input id="pw" type="password" autocomplete="new-password"></label>
@@ -183,7 +207,7 @@
   <button type="button" data-page="ops"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg>Операции</button>
   <button type="button" class="plus" data-page="add" aria-label="Записать"><span><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>Записать</button>
   <button type="button" data-page="sheet"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 3v18M4 9h16"/></svg>Лист</button>
-  <button type="button" data-page="funds"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="13" rx="4"/><path d="M8 5h8M10 2.5h4M9 14h6"/></svg>Фонды</button>
+  <button type="button" data-page="more"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>Ещё</button>
 </nav>
 
 <div id="lock" class="lock" hidden>
@@ -203,6 +227,7 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
