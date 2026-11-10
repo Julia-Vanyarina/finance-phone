@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.08-g";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.10-c";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -1505,11 +1505,18 @@ function walletSummary() {
     else if (x.kind === "dream") s.dream += a;
   });
   s.card_left = card + s.card_in - s.card_need; s.cash_left = cash - s.cash_need; s.left = s.card_left + s.cash_left;
+  /* сумма на карте вписана до последней выплаты — устарела (если на телефоне её с тех пор не меняли) */
+  const fresh = entries.some((e) => e.kind === "wallet_money" && e.status !== "done" && e.p.card != null) ||
+    entries.some((e) => e.kind === "bank" && e.status !== "done");
+  s.card_stale = !!w.card_stale && !fresh && s.card_need > 0; s.card_at = w.card_at || "";
   return s;
 }
 function walletHeadline(s) {
   if (!s.count) return "запишите траты, заказы и долги, которые впереди";
   const nd = ddmm(s.next), bad = [];
+  if (s.card_stale)
+    return `С карты до ${nd} — ${fmt(s.card_need)}. Сумма на карте вписана${s.card_at ? " " + ddmm(s.card_at) : ""}, до зарплаты — впишите, сколько сейчас` +
+      (s.cash_left < 0 ? ` · наличными не хватает ${fmt(-s.cash_left)}` : "") + (s.after_need ? ` · после зарплаты ${fmt(s.after_need)}` : "");
   if (s.card_left < 0) bad.push(`на карте не хватает ${fmt(-s.card_left)}`);
   if (s.cash_left < 0) bad.push(`наличными не хватает ${fmt(-s.cash_left)}`);
   return (bad.length ? `До ${nd}: ${bad.join(", ")}` : `До ${nd} хватает, останется ${fmt(s.left)}`) +
@@ -1519,7 +1526,7 @@ function walletCard() {
   /* мини-карточка на «Главной»: сворачивается; убрать — в «Ещё → 💼 До зарплаты» */
   const w = snap && snap.wallet;
   if (!w || cfg.walletHide) return "";
-  const s = walletSummary(), bad = s.card_left < 0 || s.cash_left < 0, folded = !!cfg.walletFold;
+  const s = walletSummary(), bad = (!s.card_stale && s.card_left < 0) || s.cash_left < 0, folded = !!cfg.walletFold;
   const list = folded ? "" : walletItems().filter((x) => !x.done).slice(0, 4).map((x) =>
     `<div class="line"><span>${W_KINDS[x.kind][0]} ${x.kind === "borrow" ? ddmm(x.day2 || s.next) + " вернуть: " : x.day ? ddmm(x.day) + " " : ""}${esc(x.title || W_KINDS[x.kind][1])}</span>
      <span class="r">${x.kind === "refund" ? "+" : ""}${fmt(x.amount)}${x.pay === "cash" && x.kind !== "refund" ? " 💵" : ""}</span></div>`).join("");
