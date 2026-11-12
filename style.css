@@ -278,5 +278,162 @@ h1 { font-size: 27px; }
 .cal-grid .cd .dots i.debt { background: var(--red); }
 .cal-grid .blank { aspect-ratio: 1 / 1; }
 
+.view-seg { margin: 0 0 12px; }
+.row-plus { border: 1px solid var(--line); background: #fff; color: #4D66B8; border-radius: 999px; width: 34px; height: 34px;
+  flex: 0 0 34px; font-size: 20px; line-height: 1; padding: 0; margin-left: 8px; align-self: center; }
+.row-plus:active { background: var(--soft); }
+.line .rr { display: flex; align-items: center; }
+.pay-day { display: flex; justify-content: space-between; font-size: 12px; letter-spacing: .5px; color: #6F8BE0; margin: 10px 0 2px; }
+.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.acts button { margin: 0; }
+.acts .wide { grid-column: 1 / -1; }
 .ghost.small, button.small { padding: 4px 10px; font-size: 13px; width: auto; flex: 0 0 auto; }
 .item .tx .badge { font-size: 11px; }
+
+/* =====================================================================================
+   ЛАВАНДА — мягкий дизайн: лавандовый фон, белые карточки без рамок, розово-сиреневая «главная карта»,
+   круглые пастельные кнопки действий, тёмно-индиговые акценты. Блок в конце файла — переопределяет всё выше.
+   ===================================================================================== */
+:root {
+  --paper: #EFECFB;
+  --card: #FFFFFF;
+  --ink: #2E2A5F;
+  --muted: #8E8BB1;
+  --blue: #7C6FDB;
+  --blue2: #B9B0F5;
+  --soft: #F0EDFD;
+  --line: rgba(124, 111, 219, .14);
+  --navy: #3A3478;
+  --navy2: #5A50A8;
+  --pink: #F4A9C8;
+  --peach: #FDE6D6;
+  --lilac: #E4E0FB;
+  --rose: #FBE0EC;
+  --green: #3FA37C;
+  --red: #E0607E;
+  --amber: #E0A23C;
+  --font: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;
+}
+html, body { background: var(--paper); -webkit-font-smoothing: antialiased; }
+body { background-image: none; letter-spacing: .1px; }
+.bg .b1 { width: 80vmax; height: 80vmax; left: -36vmax; top: -40vmax;
+  background: radial-gradient(circle, rgba(244, 169, 200, .38), rgba(244, 169, 200, 0) 65%); }
+.bg .b2 { width: 70vmax; height: 70vmax; right: -34vmax; bottom: -30vmax;
+  background: radial-gradient(circle, rgba(185, 176, 245, .55), rgba(185, 176, 245, 0) 65%); }
+.bg .b3, .bg .b4 { display: none; }
+
+h1 { font-weight: 700; font-size: 28px; letter-spacing: -.3px; color: var(--ink); }
+h2 { font-weight: 650; font-size: 17px; letter-spacing: -.1px; }
+.top { background: rgba(239, 236, 251, .82); border-bottom: 0; }
+.sub { color: var(--muted); }
+.gear { border: 0; background: #fff; box-shadow: 0 6px 18px rgba(90, 80, 168, .12); }
+.gear svg { stroke: var(--navy); }
+.sync { background: linear-gradient(135deg, var(--navy2), var(--navy)); box-shadow: 0 8px 20px rgba(58, 52, 120, .32); }
+.sync .count { color: var(--navy); }
+
+.card { border: 0; border-radius: 26px; background: var(--card); box-shadow: 0 10px 30px rgba(90, 80, 168, .10); }
+.card.soft { background: linear-gradient(160deg, #E8E4FD, #F6E9F5); box-shadow: none; }
+.card.warn { background: #FFF4E6; }
+.sec { color: var(--navy2); font-weight: 650; letter-spacing: .6px; }
+.line { border-bottom: 1px solid var(--line); }
+.big { font-weight: 700; letter-spacing: -.4px; }
+.big b { font-weight: 700; }
+
+/* кнопки */
+.primary { background: linear-gradient(135deg, var(--navy2), var(--navy)); box-shadow: 0 10px 22px rgba(58, 52, 120, .30);
+  font-weight: 600; }
+.ghost { border: 0; background: var(--soft); color: var(--navy); font-weight: 600; }
+.ghost.danger { background: var(--rose); color: var(--red); }
+.seg, .dest { background: var(--soft); }
+.seg button, .dest button { color: var(--muted); font-weight: 600; }
+.seg button.on, .dest button.on { background: #fff; color: var(--navy); box-shadow: 0 4px 12px rgba(90, 80, 168, .16); }
+.chip { border: 0; background: #fff; color: var(--muted); font-weight: 600; box-shadow: 0 4px 12px rgba(90, 80, 168, .08); }
+.chip.on { background: var(--navy); color: #fff; }
+.field input, .field select, .search { border: 0; background: var(--soft); }
+.field input:focus, .field select:focus { box-shadow: 0 0 0 3px rgba(124, 111, 219, .22); background: #fff; }
+.amount input { border-bottom-color: var(--lilac); font-weight: 700; color: var(--navy); }
+.row-plus { border: 0; background: var(--lilac); color: var(--navy); font-weight: 700; }
+.row-plus:active { background: var(--blue2); }
+.bar { background: var(--soft); }
+.bar i { background: linear-gradient(90deg, var(--pink), var(--blue)); }
+summary { color: var(--navy2); }
+
+/* записи и иконки: пастельные кружки по очереди */
+.entry + .entry { border-top: 1px solid var(--line); }
+.entry .ic { width: 42px; height: 42px; border-radius: 14px; background: var(--lilac); }
+.entry .ic svg { stroke: var(--navy); }
+.entry:nth-child(4n+2) .ic { background: var(--peach); }
+.entry:nth-child(4n+3) .ic { background: var(--rose); }
+.entry:nth-child(4n+4) .ic { background: #DDF1EA; }
+.entry .t { font-weight: 600; }
+.entry .sum { font-weight: 650; }
+.totals .v { font-weight: 700; }
+
+/* нижние вкладки: белая плашка, тёмная «＋» как в банковских приложениях */
+.tabs { background: rgba(255, 255, 255, .96); border-top: 0; border-radius: 26px 26px 0 0;
+  box-shadow: 0 -8px 30px rgba(90, 80, 168, .12); }
+.tabs button { color: #A9A6C8; font-weight: 600; }
+.tabs button.on { color: var(--navy); background: transparent; }
+.tabs button.on svg { stroke-width: 2.1; }
+.tabs .plus { color: var(--navy); }
+.tabs .plus span { background: linear-gradient(135deg, var(--navy2), var(--navy)); border-color: #fff;
+  box-shadow: 0 10px 22px rgba(58, 52, 120, .38); }
+
+/* окна снизу */
+.sheet { background: #fff; border-radius: 28px 28px 0 0; box-shadow: 0 -10px 40px rgba(46, 42, 95, .18); }
+.sheet-bg { background: rgba(46, 42, 95, .32); }
+.toast { background: rgba(46, 42, 95, .94); border-radius: 18px; }
+
+/* главная карта «можно потратить» */
+.hero { position: relative; overflow: hidden; color: #fff; padding: 20px 18px 16px;
+  background: linear-gradient(135deg, #F2A3C4 0%, #D9A6E6 48%, #A99DF0 100%);
+  box-shadow: 0 16px 36px rgba(196, 122, 190, .35); }
+.hero::before, .hero::after { content: ""; position: absolute; border-radius: 50%; pointer-events: none; }
+.hero::before { width: 260px; height: 140px; right: -70px; top: -40px; transform: rotate(-18deg);
+  background: radial-gradient(ellipse, rgba(255, 255, 255, .38), rgba(255, 255, 255, 0) 70%); }
+.hero::after { width: 300px; height: 120px; left: -90px; bottom: -60px; transform: rotate(12deg);
+  background: radial-gradient(ellipse, rgba(255, 255, 255, .28), rgba(255, 255, 255, 0) 70%); }
+.hero > * { position: relative; z-index: 1; }
+.hero .k { font-size: 13px; opacity: .9; font-weight: 600; letter-spacing: .3px; }
+.hero .big { font-size: 34px; margin: 4px 0 2px; color: #fff; }
+.hero .hint, .hero .muted { color: rgba(255, 255, 255, .9); margin-left: 0; }
+.hero .dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, .7); }
+.hero .chipline { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.hero .chipline span { background: rgba(255, 255, 255, .25); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; }
+
+/* круглые быстрые действия под картой */
+.qa { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 2px 0 16px; }
+.qa button { border: 0; background: transparent; display: flex; flex-direction: column; align-items: center; gap: 7px;
+  color: var(--muted); font-size: 12.5px; font-weight: 600; padding: 0; }
+.qa i { width: 58px; height: 58px; border-radius: 20px; display: grid; place-items: center; font-style: normal;
+  box-shadow: 0 8px 18px rgba(90, 80, 168, .12); }
+.qa i svg { width: 26px; height: 26px; fill: none; stroke: var(--navy); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.qa button:nth-child(1) i { background: var(--peach); }
+.qa button:nth-child(2) i { background: var(--lilac); }
+.qa button:nth-child(3) i { background: var(--rose); }
+.qa button:nth-child(4) i { background: #fff; }
+.qa button:active i { transform: scale(.94); }
+
+/* кредиты: даты и платежи */
+.pay-day { color: var(--navy2); font-weight: 650; }
+.badge.pending { background: #FFEFD9; color: #9A6510; }
+.lock { background: var(--paper); background-image: radial-gradient(circle at 10% 0%, rgba(244, 169, 200, .45), transparent 55%),
+  radial-gradient(circle at 100% 100%, rgba(185, 176, 245, .55), transparent 55%); }
+.lock-ic, .pin-dots i.on { background: linear-gradient(135deg, var(--navy2), var(--navy)); }
+.pin-dots i { border-color: var(--navy); }
+.keys button { border: 0; background: #fff; box-shadow: 0 6px 16px rgba(90, 80, 168, .12); }
+
+/* ---- меньше визуального шума */
+.row-plus.ring { background: #fff; color: var(--blue2); border: 2px solid var(--lilac); font-size: 18px; font-weight: 400; }
+.row-plus.ring:active { background: var(--lilac); color: var(--navy); }
+.nc-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; font-size: 14.5px; }
+.nc-line .ghost { margin: 0; }
+details.debt { padding: 14px 16px; }
+details.debt > summary { list-style: none; cursor: pointer; color: var(--ink); }
+details.debt > summary::-webkit-details-marker { display: none; }
+details.debt > summary .line b::after { content: " ▸"; color: var(--blue2); font-weight: 400; }
+details.debt[open] > summary .line b::after { content: " ▾"; }
+details.debt[open] > summary { margin-bottom: 8px; }
+.more-opts { margin-top: 12px; }
+.more-opts > summary { font-size: 14px; color: var(--navy2); font-weight: 600; cursor: pointer; }
+.view-seg button { font-size: 14px; }

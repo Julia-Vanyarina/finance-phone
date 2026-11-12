@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#F6F3EC">
+<meta name="theme-color" content="#EFECFB">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -62,11 +62,13 @@
         <input id="note" placeholder="например: кофе, продукты в Самокате" enterkeyhint="done">
       </label>
 
-      <div class="two">
-        <label class="field">
-          <span>Дата</span>
-          <input id="date" type="date">
-        </label>
+      <label class="field">
+        <span>Дата</span>
+        <input id="date" type="date">
+      </label>
+
+      <details class="more-opts">
+        <summary>Ещё настройки: колонка, только на телефоне</summary>
         <label class="field">
           <span>Колонка</span>
           <select id="half">
@@ -75,8 +77,6 @@
             <option value="2">С аванса</option>
           </select>
         </label>
-      </div>
-
       <div class="dest">
         <button type="button" class="on" data-mode="send">
           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
@@ -88,6 +88,7 @@
         </button>
       </div>
       <p class="hint" id="destHint">Уйдёт в лист месяца на компьютере при синхронизации.</p>
+      </details>
 
       <button class="primary" type="submit" id="submitBtn">Записать</button>
     </form>
@@ -118,8 +119,12 @@
   <!-- ======================= Сверка с банком -->
   <section id="page-bank" class="page"><div id="bank"></div></section>
 
-  <!-- ======================= Операции -->
+  <!-- ======================= Кредиты -->
+  <section id="page-credits" class="page"><div id="credits"></div></section>
+
+  <!-- ======================= Операции (переключатель внутри «Листа») -->
   <section id="page-ops" class="page">
+    <div class="seg view-seg"><button type="button" data-view="cols">Колонки</button><button type="button" data-view="cats">Категории</button><button type="button" class="on">Операции</button></div>
     <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
       <input id="opsSearch" type="search" placeholder="Поиск: кафе, такси, Озон…" autocomplete="off"></label>
     <div class="filters" id="opsMonths"></div>
@@ -204,9 +209,9 @@
 
 <nav class="tabs">
   <button type="button" class="on" data-page="sum"><svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>Главная</button>
-  <button type="button" data-page="ops"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg>Операции</button>
-  <button type="button" class="plus" data-page="add" aria-label="Записать"><span><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>Записать</button>
   <button type="button" data-page="sheet"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 3v18M4 9h16"/></svg>Лист</button>
+  <button type="button" class="plus" data-page="add" aria-label="Записать"><span><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>Записать</button>
+  <button type="button" data-page="credits"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Кредиты</button>
   <button type="button" data-page="more"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>Ещё</button>
 </nav>
 

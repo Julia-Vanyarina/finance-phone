@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.10-c";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.11-c";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -219,7 +219,7 @@ function pendingPayload(pending) {
       : e.kind === "paste" ? { id: e.id, date: e.date, kind: "paste", items: e.items, created: e.created }
       : GENERIC_KINDS.includes(e.kind) ? { ...(e.p || {}), id: e.id, date: e.date, kind: e.kind, created: e.created }
       : e.kind === "fundpay" ? { id: e.id, date: e.date, kind: "fundpay", fund: e.fund, amount: e.amount,
-        category: e.category, note: e.note, created: e.created }
+        category: e.category, note: e.note, row_id: e.row_id || null, row_name: e.row_name || "", created: e.created }
       : { id: e.id, date: e.date, kind: e.kind, amount: e.amount, category: e.category,
         note: e.note, half: e.half || null, row_id: e.row_id || null, row_name: e.row_name || "", created: e.created,
         rev: e.rev || 0, deleted: !!e.deleted })),
@@ -621,7 +621,7 @@ function renderOps() {
   if (q) ops = ops.filter((o) => `${o.title} ${o.sub} ${o.cat}`.toLowerCase().includes(q));
   const spent = ops.filter((o) => !o.inc && !o.fund).reduce((a, o) => a + o.amount, 0);
   const got = ops.filter((o) => o.inc && !o.refund).reduce((a, o) => a + o.amount, 0);
-  let h = (opsIdx === 0 && !q ? lastSpendsCard() : "") + `<div class="totals"><div class="card"><div class="k">Траты${q ? " (найдено)" : ""}</div><div class="v">${fmt(spent)}</div></div>
+  let h = (opsIdx === 0 && !q ? lastSpendsHint() : "") + `<div class="totals"><div class="card"><div class="k">Траты${q ? " (найдено)" : ""}</div><div class="v">${fmt(spent)}</div></div>
     <div class="card"><div class="k">Доходы</div><div class="v green">+${fmt(got)}</div></div></div>`;
   if (!ops.length) { box.innerHTML = h + `<div class="card empty">Ничего не нашлось</div>`; return; }
   let day = "";
@@ -690,53 +690,49 @@ function todayBlock() {
   if (extra > 0) html += `<div class="hint">учтены траты с телефона сверх плана, которых ещё нет на компьютере: −${fmt(extra)}</div>`;
   const loc = localSpentThisMonth();
   if (loc > 0) html += `<div class="hint">только на телефоне в этом месяце: ${fmt(loc)} (в расчёт не входят)</div>`;
-  html += `<div class="hint">данные ноутбука ${whenText(snap.generated)}</div>`;
   return html;
 }
+function heroCard() {
+  /* главная карта: сколько можно тратить — розово-сиреневая, как банковская карта */
+  if (!snap.today) return `<div class="card hero">${todayBlock()}</div>`;
+  const t = snap.today, extra = unsentExpenses(), free = t.free - extra;
+  const days = Math.max(1, Math.round((new Date(t.next_pay + "T00:00:00") - new Date(todayISO() + "T00:00:00")) / 86400000));
+  const perDay = Math.max(0, free) / days;
+  const status = free < 0 ? "red" : perDay < 500 ? "yellow" : "green";
+  const chips = [`до ${ddmm(t.next_pay)} · ${days} дн.`, `колонка «${t.column.toLowerCase()}»`];
+  if (snap.cards != null) chips.push(`на картах ≈ ${fmt(snap.cards)}`);
+  chips.push(snap.bank && snap.bank.last_check ? `сверка ${ddmm(snap.bank.last_check)}` : "сверки ещё не было");
+  return `<div class="card hero">
+    <div class="k"><span class="dot ${status}"></span>${free < 0 ? "До выплаты не хватает" : "Можно потратить сегодня"}</div>
+    <div class="big">${free < 0 ? fmt(-free) : "~" + fmt(perDay)}</div>
+    <div class="hint">${free < 0 ? "денег колонки не хватает на всё запланированное" : `свободно до выплаты ${fmt(free)}`}</div>
+    ${t.note ? `<div class="hint">${esc(t.note)}</div>` : ""}
+    ${extra > 0 ? `<div class="hint">учтены траты с телефона сверх плана: −${fmt(extra)}</div>` : ""}
+    <div class="chipline">${chips.map((c) => `<span>${esc(c)}</span>`).join("")}</div></div>`;
+}
 function renderSummary() {
+  /* Главная — только то, чего нет на других вкладках: сколько можно тратить, «До зарплаты», важное.
+     Строки листа — в «Листе», платежи — в «Кредитах», фонды — в «Ещё». */
   if (!snap) {
     $("summary").innerHTML = updateBanner() + `<div class="card empty">Сводка появится после первой синхронизации.<br>На компьютере: «☰ Ещё → 📲 Телефон → Настроить».</div>`;
     return;
   }
   const imp = importantItems();
   const impLine = (r) => `<div class="line"><span>${esc(r.icon)} ${esc(r.text)}</span></div>`;
-  let h = updateBanner() + staleBanner() + walletCard() + lastSpendsCard();
+  let h = updateBanner() + staleBanner() + heroCard();
+  h += `<div class="qa">
+    <button type="button" data-go="add"><i><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></i>Записать</button>
+    <button type="button" data-go="bank"><i><svg viewBox="0 0 24 24"><path d="M3 10 12 4l9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg></i>Сверка</button>
+    <button type="button" data-go="credits"><i><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18M7 15h4"/></svg></i>Кредиты</button>
+    <button type="button" data-go="funds"><i><svg viewBox="0 0 24 24"><path d="M5 11a7 6 0 0 1 13-2h2v4l-2 1v3h-3v-2H9v2H6v-3a6 6 0 0 1-1-3z"/><circle cx="15" cy="10" r=".6"/></svg></i>Фонды</button>
+  </div>`;
+  h += walletCard();
   h += imp.length ? `<div class="card soft"><h2>🔔 Важное</h2>${imp.slice(0, 4).map(impLine).join("")}` +
     (imp.length > 4 ? `<details><summary>ещё ${imp.length - 4}</summary>${imp.slice(4).map(impLine).join("")}</details>` : "") + `</div>` : "";
-  h += nocreditCard();
-  h += `<div class="card">${todayBlock()}${snap.cards != null ? `<div class="line"><span>На картах должно быть</span><span class="r">${fmt(snap.cards)}</span></div>` : ""}</div>`;
-  if (snap.month) h += `<div class="sec">${esc(snap.month.title)} · ${esc(snap.month.span)}</div>`;
-  (snap.halves || []).forEach((half) => {
-    h += `<div class="card"><h2>${esc(half.title)}</h2>
-      <div class="line"><span>Доход</span><span class="r green">+${fmt(half.income)}</span></div>
-      <div class="line"><span>Расходы по листу</span><span class="r">${fmt(half.expense)}</span></div>
-      <div class="line"><span>Остаток</span><span class="r ${half.rest < 0 ? "red" : ""}">${fmt(half.rest)}</span></div>`;
-    const open = half.rows.filter((r) => !r.done && r.left > 0.5 && !r.credit);
-    if (open.length) {
-      h += `<div class="sec" style="margin-top:12px">ещё не потрачено по плану</div>`;
-      open.forEach((r, i) => {
-        if (i === 5 && open.length > 6) h += `<details><summary>ещё ${open.length - 5} строк</summary>`;
-        const pct = r.amount > 0 ? Math.min(100, Math.max(0, (r.spent / r.amount) * 100)) : 0;
-        h += `<div style="padding:4px 0"><div class="line" style="border:0;padding:0"><span>${esc(r.name)}</span><span class="r">${fmt(r.left)} <span class="muted">из ${fmt(r.amount)}</span></span></div>
-          <div class="bar"><i style="width:${pct}%"></i></div></div>`;
-      });
-      if (open.length > 6) h += `</details>`;
-    }
-    h += `</div>`;
-  });
-  h += `<div class="card"><h2>Сверка с банком</h2><p class="hint">${snap.bank && snap.bank.last_check ? "последняя — " + ddmm(snap.bank.last_check) : "ещё не делали"}</p>
-    <button class="ghost" type="button" data-go="bank">🏦 Сверить с банком</button></div>`;
-  if (snap.payments && snap.payments.length) {
-    h += `<div class="sec">Ближайшие платежи</div><div class="card">`;
-    snap.payments.forEach((p) => { h += `<div class="line"><span>${ddmm(p.date)} · ${esc(p.name)}</span><span class="r">${fmt(p.amount)}</span></div>`; });
-    h += `</div>`;
-  }
-  h += `<div class="card"><h2>Напоминания в Календаре iPhone</h2>
-    <p class="hint" style="margin-top:0">Платежи и дни рождения добавятся в Календарь с напоминанием накануне в 10:00 (о подарке — за 2 недели).
-    Повторно добавляются только новые.</p>
-    <button class="ghost" type="button" data-go="ics">📅 Добавить в Календарь</button></div>`;
+  const nx = nextPayments(1)[0];
+  if (nx) h += `<div class="card tap" data-go="credits" style="cursor:pointer"><div class="line" style="border:0;padding:0">
+    <span>💳 Ближайший платёж: <b>${ddmm(nx.due)}</b> · ${esc(nx.name)}</span><span class="r">${fmt(nx.amount)} ›</span></div></div>`;
   $("summary").innerHTML = h;
-  if ($("ncReset")) $("ncReset").onclick = nocreditReset;
   walletCardBind();
 }
 /* ------------------------------------------------------------------ Лист месяца (как на компьютере) */
@@ -750,17 +746,25 @@ function phoneUnsentFor(sheet) {
   return entries.filter((e) => (e.kind === "expense" || e.kind === "income") && e.mode === "send" && e.status !== "done"
     && !e.deleted && !got.has(e.id) && e.date >= from && e.date <= nm);
 }
+function viewSeg(on) {
+  /* один переключатель вида: колонки · категории · операции */
+  const b = (k, t) => `<button type="button" class="${on === k ? "on" : ""}" data-view="${k}">${t}</button>`;
+  return `<div class="seg view-seg">${b("cols", "Колонки")}${b("cats", "Категории")}${b("ops", "Операции")}</div>`;
+}
+function setView(k) {
+  if (k === "ops") { showPage("ops"); return; }
+  sheetMode = k; renderSheet(); showPage("sheet");
+}
 function renderSheet() {
   const box = $("sheet");
   if (!snap || !snap.sheets) { box.innerHTML = `<div class="card empty">Лист появится после синхронизации с компьютером.</div>`; return; }
   sheetIdx = Math.min(sheetIdx, snap.sheets.length - 1);
   const sh = snap.sheets[sheetIdx];
   const order = snap.sheets.map((x, i) => i).sort((a, b) => (snap.sheets[a].year * 12 + snap.sheets[a].month) - (snap.sheets[b].year * 12 + snap.sheets[b].month));
-  let h = `<div class="filters">` + order.map((i) => { const x = snap.sheets[i];
-    return `<button type="button" class="chip ${i === sheetIdx ? "on" : ""}" data-sheet="${i}">${esc(x.title)}</button>`; }).join("") +
-    `</div><div class="seg" style="margin:-2px 0 10px"><button type="button" class="${sheetMode === "cols" ? "on" : ""}" data-mode2="cols">По колонкам</button>` +
-    `<button type="button" class="${sheetMode === "cats" ? "on" : ""}" data-mode2="cats">По категориям</button></div>`;
-  h += `<p class="hint" style="margin:-4px 4px 10px">${esc(sh.span)} · сводка от ${ddmm(snap.generated)} ${snap.generated.slice(11, 16)}</p>`;
+  let h = viewSeg(sheetMode);
+  h += `<div class="filters">` + order.map((i) => { const x = snap.sheets[i];
+    return `<button type="button" class="chip ${i === sheetIdx ? "on" : ""}" data-sheet="${i}">${esc(x.title)}</button>`; }).join("") + `</div>`;
+  h += `<p class="hint" style="margin:-4px 4px 10px">${esc(sh.span)}</p>`;
   const pend = phoneUnsentFor(sh);
   if (pend.length) {
     const sum = pend.reduce((a, e) => a + (e.kind === "expense" ? e.amount : 0), 0);
@@ -806,22 +810,19 @@ function renderSheet() {
       }
       h += `<div class="sec">расходы ${fmt(hf.expense)}</div>`;
       if (!hf.rows.length) h += `<div class="hint">пока пусто</div>`;
-      let left = hf.income;
       hf.rows.forEach((r) => {
-        if (!r.from_fund) left -= r.amount;
-        const fact = rowActual(r);
         const st = r.done || pendingDone(r.id) ? '<span class="dot green"></span>' : (r.spent ? '<span class="dot yellow"></span>' : '<span class="dot" style="background:#C9D6F8"></span>');
         const extra = r.from_fund ? "из фонда" : (r.spent && !r.done ? `потрачено ${fmt(r.spent)}, ост. ${fmt(r.left)}`
           : (r.spent && r.spent > r.amount + 0.5 ? "перерасход" : ""));
         h += `<div class="line tap" data-row="${r.id}"><span>${st}${esc(r.name)}${pendingDone(r.id) && !r.done ? ' <span class="muted">(● ждёт отправки)</span>' : ""}${extra ? `<div class="hint" style="margin:1px 0 0 16px">${extra}</div>` : ""}</span>
-          <span class="r">${fmt(r.amount)}<div class="hint" style="margin:1px 0 0;text-align:right">${left < 0 ? '<span class="red">' + fmt(left) + "</span>" : fmt(left)}</div></span></div>`;
+          <span class="rr"><span class="r">${fmt(r.amount)}</span>${rowQuick(r)}</span></div>`;
       });
       const adds = entries.filter((e) => e.kind === "rowadd" && e.status !== "done" && e.half === hf.half && sheetOf(e.date, e.half) === sh.year * 12 + sh.month);
       adds.forEach((e) => { h += `<div class="line"><span><span class="dot" style="background:#C9D6F8"></span>${esc(e.note || e.category)} <span class="muted">(ждёт отправки)</span></span><span class="r">${e.row_kind === "income" ? "+" : ""}${fmt(e.amount)}</span></div>`; });
       h += `<button type="button" class="ghost small" style="margin-top:8px" data-addrow="${hf.half}">＋ строка</button>`;
       h += `</div>`;
     });
-    h += `<p class="hint center">● оплачено · ◐ тратится · ○ ещё нет. Справа под суммой — остаток колонки после строки.<br>Нажмите на строку — потратить, отметить ●, перенести или удалить. «＋ строка» — новая строка-план в колонку.</p>`;
+    h += `<p class="hint center"><b>＋</b> — записать трату из строки (продукты, обеды, кафе…). <b>○</b> — отметить оплаченной.<br>Нажмите на строку — все действия: из фонда, изменить, перенести, удалить.</p>`;
   }
   box.innerHTML = h;
 }
@@ -1212,7 +1213,7 @@ function renderCal() {
     g += `<button type="button" class="cd ${cls} ${iso === today ? "today" : ""} ${iso === calSel ? "sel" : ""} ${imp ? "imp" : ""}" data-cal="${iso}">${d}${dots ? `<span class="dots">${dots}</span>` : ""}</button>`;
   }
   const canPrev = `${calYM}-01` > cal.from, canNext = `${calYM}-31` < cal.to;
-  let html = `<div class="card"><div class="cal-head"><button type="button" id="calPrev" ${canPrev ? "" : "disabled"}>‹</button>
+  let html = icsCard() + `<div class="card"><div class="cal-head"><button type="button" id="calPrev" ${canPrev ? "" : "disabled"}>‹</button>
     <h2 style="margin:0">${MON_FULL[m - 1]} ${y}</h2><button type="button" id="calNext" ${canNext ? "" : "disabled"}>›</button></div>
     <div class="cal-grid">${g}</div>
     <div class="legend"><span><i style="background:#FBE3E8"></i>выходной</span><span><i style="background:#DCE6FD"></i>офис</span>
@@ -1255,7 +1256,7 @@ function renderCal() {
 
 /* ------------------------------------------------------------------ записи «как есть» (поводы, счётчик, здоровье, рассрочка) */
 const GENERIC_KINDS = ["installment", "occ_new", "occ_set", "nocredit", "hp_book", "hp_done", "visit_done",
-  "wallet_save", "wallet_del", "wallet_done", "wallet_money", "wallet_move"];
+  "wallet_save", "wallet_del", "wallet_done", "wallet_money", "wallet_move", "pay_set", "pay_extra"];
 function pushGeneric(kind, p, title, icon, date) {
   entries.unshift({ id: uid(), created: new Date().toISOString(), date: date || todayISO(), kind, p, title, icon: icon || "•",
     amount: 0, category: "", note: title, mode: "send", status: "pending" });
@@ -1266,6 +1267,14 @@ function pendingOf(kind, test) {
 }
 
 /* ------------------------------------------------------------------ 🍩 без новых кредитов */
+function nocreditLine() {
+  const nc = snap && snap.nocredit;
+  if (!nc) return "";
+  const reset = pendingOf("nocredit").length > 0, n = reset ? 0 : nc.days;
+  const word = (k) => (k % 10 === 1 && k % 100 !== 11 ? "день" : [2, 3, 4].includes(k % 10) && ![12, 13, 14].includes(k % 100) ? "дня" : "дней");
+  return `<div class="card nc-line"><span>🕊️ Без новых кредитов: <b>${n} ${word(n)}</b><span class="muted"> · ${nc.best > n ? "рекорд " + nc.best + " · " : ""}цель ${reset ? 7 : nc.goal}${reset ? " · сброс ждёт отправки" : ""}</span></span>
+    <button type="button" class="ghost small" id="ncReset">Взяла в долг</button></div>`;
+}
 function nocreditCard() {
   const nc = snap && snap.nocredit;
   if (!nc) return "";
@@ -1526,7 +1535,7 @@ function walletCard() {
   /* мини-карточка на «Главной»: сворачивается; убрать — в «Ещё → 💼 До зарплаты» */
   const w = snap && snap.wallet;
   if (!w || cfg.walletHide) return "";
-  const s = walletSummary(), bad = (!s.card_stale && s.card_left < 0) || s.cash_left < 0, folded = !!cfg.walletFold;
+  const s = walletSummary(), bad = (!s.card_stale && s.card_left < 0) || s.cash_left < 0, folded = cfg.walletFold !== false;   /* по умолчанию — одна строка итога */
   const list = folded ? "" : walletItems().filter((x) => !x.done).slice(0, 4).map((x) =>
     `<div class="line"><span>${W_KINDS[x.kind][0]} ${x.kind === "borrow" ? ddmm(x.day2 || s.next) + " вернуть: " : x.day ? ddmm(x.day) + " " : ""}${esc(x.title || W_KINDS[x.kind][1])}</span>
      <span class="r">${x.kind === "refund" ? "+" : ""}${fmt(x.amount)}${x.pay === "cash" && x.kind !== "refund" ? " 💵" : ""}</span></div>`).join("");
@@ -1536,7 +1545,7 @@ function walletCard() {
     <div class="hint ${bad ? "red" : s.count ? "green" : ""}" style="margin:6px 0 0">${esc(walletHeadline(s))}</div>${list}</div>`;
 }
 function walletCardBind() {
-  if ($("wFold")) $("wFold").onclick = () => { cfg.walletFold = !cfg.walletFold; saveCfg(); renderSummary(); };
+  if ($("wFold")) $("wFold").onclick = () => { cfg.walletFold = cfg.walletFold === false; saveCfg(); renderSummary(); };
   if ($("wOpen")) $("wOpen").onclick = () => { cfg.moreTab = "wallet"; saveCfg(); showPage("more"); renderMore(); };
 }
 function renderWallet() {
@@ -1610,10 +1619,11 @@ function walletItemDialog(x, kind) {
 
 function renderAll() {
   fillForm();
-  $("today").innerHTML = todayBlock();
+  $("today").innerHTML = "";              // «можно потратить» — только на Главной, без повторов
   renderOps();
   renderSummary();
   renderSheet();
+  renderCredits();
   renderMore();
   renderSettings();
   renderCount();
@@ -1676,6 +1686,8 @@ function editEntry(e) {
   $("date").value = e.date;
   $("half").value = String(e.half || 0);
   $("row").value = e.row_id ? String(e.row_id) : "";
+  const mo = document.querySelector(".more-opts");
+  if (mo) mo.open = !!(e.half || e.mode === "local");     // нестандартная колонка / только телефон — показать
   setEditing(e.id);
   toast("Измените и нажмите «Сохранить»");
 }
@@ -1698,24 +1710,60 @@ function findRow(id) {
   return null;
 }
 function pendingDone(rowId) {
-  return entries.some((e) => e.kind === "done" && e.row_id === rowId && e.status !== "done");
+  return entries.some((e) => (e.kind === "done" || e.kind === "fundpay") && e.row_id === rowId && e.status !== "done" && !e.deleted);
+}
+const SPEND_CATS = ["Продукты", "Обеды и кафе", "Обеды в офисе", "Кафе и рестораны", "Маркетплейсы", "Одежда и маркетплейсы",
+  "Развлечения и прогулки", "Другое", "Хобби и творчество", "Красота и уход", "Дом и быт", "Транспорт"];
+function isSpendRow(r) {
+  /* из строки тратят понемногу: продукты, обеды… (или из неё уже тратили) — у неё ＋; разовые (подписка, квартира) — ○ */
+  if ((r.spends || []).length) return true;
+  const one = /подписк|квартир|проездн|связь|налог|автоплат|маникюр|косметолог/i.test(r.name || "");
+  return SPEND_CATS.includes(r.category) && !one;
+}
+function rowQuick(r) {
+  if (r.done || pendingDone(r.id)) return "";
+  if (canSpendRow(r) && isSpendRow(r)) return `<button type="button" class="row-plus" data-spend="${r.id}" aria-label="Потратить из строки">＋</button>`;
+  if (r.from_fund) return "";
+  return `<button type="button" class="row-plus ring" data-quickdone="${r.id}" aria-label="Отметить оплаченной">○</button>`;
+}
+function quickDone(id) {
+  const f = findRow(id);
+  if (!f) return;
+  entries.unshift({ id: uid(), created: new Date().toISOString(), date: todayISO(), kind: "done", amount: 0,
+    category: f.r.category, note: "", row_id: id, row_name: f.r.name, half: f.half, mode: "send", status: "pending" });
+  saveEntries(); renderAll(); autoSync(800);
+  toast(`«${f.r.name}» — оплачено ●. Отменить: «Операции → С телефона» → запись → Удалить`, 4200);
+}
+function canSpendRow(r) { return !r.credit && !r.from_fund && !r.fund && !String(r.category || "").startsWith("В фонд") && !r.done && r.left > 0.5; }
+function spendFromRow(id) {
+  kind = "expense"; mode = "send"; setEditing(null);
+  showPage("add"); fillForm();
+  $("row").value = String(id); onRowChange(); $("amount").focus();
 }
 function openRow(id) {
   const f = findRow(id);
   if (!f) return;
   const r = f.r;
-  const canSpend = !r.credit && !r.from_fund && !r.done && r.left > 0.5;
+  const canSpend = canSpendRow(r);
   const canDone = !r.done && !pendingDone(id);
   const sp = r.spends || [];
+  const funds = ((snap && snap.funds) || []).map((x, i) => ({ ...x, i })).filter((x) => x.saved > 0.5);
+  const canFund = !r.credit && !r.from_fund && !r.done && !sp.length && funds.length;
   const spHtml = sp.length ? `<div class="spend-list">${sp.map((x) => `<div class="line"><span>${ddmm(x.date)} · ${esc(x.note || (x.amount < 0 ? "вернули" : "трата"))}</span>
       <span class="r ${x.amount < 0 ? "green" : ""}">${x.amount < 0 ? "↩ +" : "−"}${fmtExact(Math.abs(x.amount))}</span></div>`).join("")}</div>` : "";
+  const canEdit = !r.credit && !r.from_fund;
   sheetDialog(`<h2>${esc(r.name)} · ${fmt(r.amount)}</h2>
-    <p class="hint">${esc(r.category)} · ${f.half === 1 ? "с зарплаты" : "с аванса"}${r.spent ? ` · потрачено ${fmt(r.spent)}, осталось ${fmt(Math.max(0, r.left))}` : ""}${r.done ? " · оплачено ●" : ""}${pendingDone(id) ? " · отметка ● ждёт синхронизации" : ""}</p>
+    <p class="hint">${esc(r.category)} · ${f.half === 1 ? "с зарплаты" : "с аванса"}${r.date ? " · " + ddmm(r.date) : ""}${r.spent ? ` · потрачено ${fmt(r.spent)}, осталось ${fmt(Math.max(0, r.left))}` : ""}${r.done ? " · оплачено ●" : ""}${pendingDone(id) ? " · отметка ● ждёт синхронизации" : ""}${r.from_fund ? " · оплачено из фонда" : ""}</p>
     ${spHtml}
-    ${canSpend ? '<button class="primary" data-a="spend">Потратила из этой строки…</button>' : ""}
-    ${canDone ? '<button class="ghost" data-a="done">Отметить оплаченной ●</button>' : ""}
-    ${!r.credit && !r.from_fund ? '<button class="ghost" data-a="edit">Изменить дату, сумму или колонку…</button>' : ""}
-    ${!r.credit && !r.from_fund && !sp.length ? '<button class="ghost danger" data-a="del">Удалить строку</button>' : ""}`, (a) => {
+    <div class="acts">
+      ${canSpend ? '<button class="primary wide" data-a="spend">＋ Потратила из этой строки</button>' : ""}
+      ${canDone ? `<button class="ghost ${canFund ? "" : "wide"}" data-a="done">● Оплачено</button>` : ""}
+      ${canFund ? '<button class="ghost" data-a="fund">🐷 Из фонда…</button>' : ""}
+      ${r.credit ? '<button class="ghost wide" data-a="credit">💳 Открыть в «Кредитах»</button>' : ""}
+      ${canEdit ? '<button class="ghost" data-a="edit">✏️ Изменить</button>' : ""}
+      ${canEdit ? '<button class="ghost" data-a="move">📅 Перенести</button>' : ""}
+      ${canEdit && !sp.length ? '<button class="ghost danger wide" data-a="del">Удалить строку</button>' : ""}
+    </div>`, (a) => {
     if (a === "del") {
       if (!confirm(`Удалить «${r.name}» ${fmt(r.amount)} из листа?`)) return false;
       entries.unshift({ id: uid(), created: new Date().toISOString(), date: todayISO(), kind: "rowdel", amount: 0,
@@ -1723,22 +1771,34 @@ function openRow(id) {
       saveEntries(); renderAll(); autoSync(800);
       toast(`«${r.name}» удалится из листа при синхронизации`);
     }
-    if (a === "edit") { setTimeout(() => editRowDialog(id, r, f.half), 50); }
-    if (a === "spend") {
-      kind = "expense"; mode = "send"; setEditing(null);
-      showPage("add"); fillForm();
-      $("row").value = String(id); onRowChange(); $("amount").focus();
-    }
+    if (a === "edit" || a === "move") { setTimeout(() => editRowDialog(id, r, f.half, a === "move"), 50); }
+    if (a === "spend") spendFromRow(id);
+    if (a === "credit") showPage("credits");
+    if (a === "fund") { setTimeout(() => rowFundDialog(id, r, f.half, funds), 50); }
     if (a === "done") {
       entries.unshift({ id: uid(), created: new Date().toISOString(), date: todayISO(), kind: "done", amount: 0,
         category: r.category, note: "", row_id: id, row_name: r.name, half: f.half, mode: "send", status: "pending" });
-      saveEntries(); renderAll();
+      saveEntries(); renderAll(); autoSync(800);
       toast(`«${r.name}» отмечено ● — уйдёт на компьютер при синхронизации`);
     }
   });
 }
-function editRowDialog(id, r, half) {
-  sheetDialog(`<h2>${esc(r.name)}</h2>
+function rowFundDialog(id, r, half, funds) {
+  /* строку листа оплатили деньгами фонда: в колонку встанет снятие «Из фонда …», строка — ● */
+  sheetDialog(`<h2>«${esc(r.name)}» ${fmt(r.amount)} — из какого фонда?</h2>
+    <p class="hint">Для месяца это ноль: в колонке появится «Из фонда …» на ту же сумму, строка станет оплаченной ●, фонд уменьшится.</p>
+    ${funds.map((x) => `<button class="ghost" data-a="f${x.i}">${esc(x.name)} · в фонде ${fmt(x.saved)}</button>`).join("")}`, (a) => {
+    if (!a.startsWith("f")) return;
+    const fund = snap.funds[Number(a.slice(1))];
+    if (r.amount > fund.saved + 0.5 && !confirm(`В фонде ${fmt(fund.saved)}, а строка ${fmt(r.amount)} — фонд уйдёт в минус. Всё равно?`)) return false;
+    entries.unshift({ id: uid(), created: new Date().toISOString(), date: todayISO(), kind: "fundpay", fund: fund.name,
+      amount: r.amount, category: r.category, note: r.name, half, row_id: id, row_name: r.name, mode: "send", status: "pending" });
+    saveEntries(); renderAll(); autoSync(800);
+    toast(`«${r.name}» — из фонда «${fund.name}», уйдёт при синхронизации`);
+  });
+}
+function editRowDialog(id, r, half, moving) {
+  sheetDialog(`<h2>${moving ? "Перенести: " : ""}${esc(r.name)}</h2>
     <p class="hint">Новая дата — строка переедет в нужный месяц (1–9 число в колонке «С аванса» — это лист прошлого месяца).</p>
     <label class="field"><span>Дата</span><input id="reDate" type="date" value="${esc(r.date || todayISO())}"></label>
     <label class="field"><span>Сумма</span><input id="reAmount" inputmode="decimal" value="${String(r.amount).replace(".", ",")}"></label>
@@ -1915,6 +1975,149 @@ function payFromFund(i) {
   setTimeout(() => { const i2 = bg.querySelector("#fpAmount"); if (i2) i2.focus(); }, 150);
 }
 
+/* ------------------------------------------------------------------ 💳 Кредиты: ближайшие платежи и погашение */
+function icsCard() {
+  return `<div class="card"><div class="line" style="border:0;padding:0;align-items:center"><span><b>📅 Напоминания в Календаре iPhone</b>
+    <div class="hint" style="margin:2px 0 0">платежи и дни рождения — накануне в 10:00, о подарке — за 2 недели</div></span>
+    <button class="ghost small" type="button" data-go="ics">Добавить</button></div></div>`;
+}
+function payKey(d, p) { return `${d.id}:${p.id}`; }
+function payPending(d, p) {
+  /* последняя неотправленная правка этого платежа с телефона */
+  const list = pendingOf("pay_set", (x) => x.debt_name === d.name && (x.pay_id === p.id || (x.due === p.due && Math.abs((x.old_amount || 0) - p.amount) < 0.01)));
+  return list.length ? list[0].p : null;
+}
+function payView(d, p) {
+  const e = payPending(d, p);
+  return e ? { ...p, amount: e.new_amount != null ? e.new_amount : p.amount, due: e.new_due || p.due,
+    paid: p.paid || !!e.paid, waiting: true } : p;
+}
+function debtsList() { return ((snap && snap.debts) || []); }
+function nextPayments(n = 12, days = 75) {
+  const t = todayISO(), until = addDays(t, days), out = [];
+  if (!snap || !snap.debts) {
+    return ((snap && snap.payments) || []).slice(0, n).map((p) => ({ due: p.date, name: p.name, amount: p.amount }));
+  }
+  debtsList().filter((d) => d.kind !== "owed").forEach((d) => d.payments.forEach((p0) => {
+    const p = payView(d, p0);
+    if (!p.paid && p.due <= until) out.push({ ...p, name: d.name, debt: d });
+  }));
+  out.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0));
+  return out.slice(0, n);
+}
+function renderCredits() {
+  const box = $("credits");
+  if (!box) return;
+  if (!snap) { box.innerHTML = `<div class="card empty">Кредиты появятся после синхронизации.</div>`; return; }
+  let h = nocreditLine();
+  if (!snap.debts) {
+    h += `<div class="card soft">Обновите программу на ноутбуке и сервере — тогда здесь появятся все кредиты и их можно будет менять с телефона.</div>`;
+  }
+  const debts = debtsList().filter((d) => d.kind !== "owed");
+  const left = debts.reduce((a, d) => a + (d.closed ? 0 : d.left), 0);
+  const t = todayISO();
+  const next = nextPayments(40, 75);
+  h += `<div class="card"><div class="line" style="border:0;padding:0"><h2 style="margin:0">Ближайшие платежи</h2>
+    <span class="r muted">2,5 мес.</span></div>`;
+  if (!next.length) h += `<div class="hint">В ближайшие 2,5 месяца платежей нет 🎉</div>`;
+  let day = "";
+  next.forEach((p) => {
+    if (p.due !== day) {
+      day = p.due;
+      const tot = next.filter((x) => x.due === day).reduce((a, x) => a + x.amount, 0);
+      const late = day < t;
+      h += `<div class="pay-day"><span>${ddmm(day)} · ${late ? '<span class="red">срок прошёл</span>' : whenIn(day)}</span><span>итого ${fmt(tot)}</span></div>`;
+    }
+    h += p.debt ? `<div class="line tap" data-pay="${payKey(p.debt, p)}"><span>${esc(p.name)}${p.extra ? ' <span class="muted">· досрочно</span>' : ""}${p.waiting ? ' <span class="badge pending">ждёт отправки</span>' : ""}</span>
+      <span class="r">${fmtExact(p.amount)} ›</span></div>`
+      : `<div class="line"><span>${esc(p.name)}</span><span class="r">${fmt(p.amount)}</span></div>`;
+  });
+  h += `<p class="hint" style="margin:8px 0 0">Нажмите на платёж — отметить оплаченным ●, поменять сумму или дату.</p></div>`;
+  if (debts.length) h += `<div class="sec">Кредиты и долги · осталось ${fmt(left)}</div>`;
+  debts.forEach((d) => {
+    const extras = pendingOf("pay_extra", (x) => x.debt_name === d.name);
+    const pays = d.payments.map((p) => payView(d, p));
+    const nx = pays.find((p) => !p.paid);
+    const opened = (cfg.debtOpen || []).includes(d.id);
+    h += `<details class="card debt" data-debt="${d.id}" ${opened ? "open" : ""}><summary><div class="line" style="border:0;padding:0"><b>${esc(d.name)}</b>
+        <span class="r ${d.closed ? "green" : ""}">${d.closed ? "закрыт ✓" : "осталось " + fmt(d.left)}</span></div>
+      <div class="hint" style="margin:2px 0 0">${nx ? `следующий ${ddmm(nx.due)} — ${fmtExact(nx.amount)}` : "платежей больше нет"}</div>
+      ${d.total > 0 ? `<div class="bar"><i style="width:${Math.min(100, (d.paid / d.total) * 100)}%"></i></div>` : ""}</summary>
+      <div class="hint">${d.regular ? `платёж по графику ${fmtExact(d.regular)}${d.pay_day ? ` ${d.pay_day}-го` : ""} · ` : ""}${d.total ? `внесено ${fmt(d.paid)} из ${fmt(d.total)}` : ""}</div>`;
+    pays.forEach((p) => {
+      h += `<div class="line tap" data-pay="${payKey(d, p)}"><span>${p.paid ? '<span class="dot green"></span>' : '<span class="dot" style="background:#C9D6F8"></span>'}${ddmm(p.due)}${p.extra ? ' <span class="muted">· досрочно</span>' : ""}${p.waiting ? ' <span class="badge pending">ждёт отправки</span>' : ""}</span>
+        <span class="r ${p.paid ? "muted" : ""}">${fmtExact(p.amount)}</span></div>`;
+    });
+    extras.forEach((x) => { h += `<div class="line"><span><span class="dot green"></span>${ddmm(x.p.date)} <span class="muted">· досрочно</span> <span class="badge pending">ждёт отправки</span></span><span class="r">${fmtExact(x.p.sum)}</span></div>`; });
+    if (!d.closed) h += `<button class="ghost small" type="button" style="margin-top:8px" data-extra="${d.id}">＋ Внести досрочно</button>`;
+    h += `</details>`;
+  });
+  const owed = debtsList().filter((d) => d.kind === "owed" && !d.closed);
+  if (owed.length) {
+    h += `<div class="sec">Мне должны</div><div class="card">`;
+    owed.forEach((d) => { const nx = d.payments.find((p) => !p.paid);
+      h += `<div class="line"><span>${esc(d.name)}${nx ? ` · ${ddmm(nx.due)}` : ""}</span><span class="r green">${fmt(d.left)}</span></div>`; });
+    h += `</div>`;
+  }
+  box.innerHTML = h;
+  if ($("ncReset")) $("ncReset").onclick = nocreditReset;
+  box.querySelectorAll("details.debt").forEach((el) => el.addEventListener("toggle", () => {
+    const id = Number(el.dataset.debt), set = new Set(cfg.debtOpen || []);
+    if (el.open) set.add(id); else set.delete(id);
+    cfg.debtOpen = [...set]; saveCfg();
+  }));
+}
+function findPay(key) {
+  const [did, pid] = String(key).split(":").map(Number);
+  const d = debtsList().find((x) => x.id === did);
+  const p0 = d && d.payments.find((x) => x.id === pid);
+  return d && p0 ? { d, p0, p: payView(d, p0) } : null;
+}
+function payDialog(key) {
+  const f = findPay(key);
+  if (!f) return;
+  const { d, p0, p } = f;
+  const bg = sheetDialog(`<h2>${esc(d.name)} · ${ddmm(p.due)}</h2>
+    <p class="hint">${p.paid ? "оплачен ●" : "ещё не оплачен"}${p.extra ? " · досрочный" : ""} · в листе встанет к выплате: 11-е → 10-е, 26-е → 25-е, как у всех кредитов${p.waiting ? " · есть неотправленная правка" : ""}</p>
+    <label class="field"><span>Сумма</span><input id="pdAmount" inputmode="decimal" value="${String(p.amount).replace(".", ",")}"></label>
+    <label class="field"><span>Дата платежа</span><input id="pdDate" type="date" value="${esc(p.due)}"></label>
+    <div class="acts">
+      ${p.paid ? "" : '<button class="primary wide" data-a="paid">● Оплачено (с этой суммой)</button>'}
+      <button class="ghost wide" data-a="save">Сохранить сумму и дату</button>
+    </div>
+    <p class="hint">Внесли больше графика — лучше «＋ Внести досрочно» у кредита: лишнее само уйдёт из будущих платежей.</p>`, (a) => {
+    if (a !== "paid" && a !== "save") return;
+    const amount = parseAmount(bg.querySelector("#pdAmount").value), nd = bg.querySelector("#pdDate").value;
+    if (!(amount > 0)) { toast("Введите сумму"); return false; }
+    if (!nd) { toast("Укажите дату"); return false; }
+    const paid = a === "paid" ? true : null;
+    if (a === "save" && Math.abs(amount - p.amount) < 0.005 && nd === p.due) return;
+    pushGeneric("pay_set", { debt_id: d.id, debt_name: d.name, pay_id: p0.id, due: p0.due, old_amount: p0.amount,
+      new_amount: amount, new_due: nd, paid, paid_on: paid ? todayISO() : null },
+      `${d.name}: ${paid ? "оплачено ● " : ""}${ddmm(nd)} ${fmtExact(amount)}`, "💳");
+    toast(`«${d.name}» — уйдёт на компьютер при синхронизации`);
+  });
+}
+function extraDialog(did) {
+  const d = debtsList().find((x) => x.id === did);
+  if (!d) return;
+  const bg = sheetDialog(`<h2>Досрочно · ${esc(d.name)}</h2>
+    <p class="hint">Осталось ${fmt(d.left)}. В листе встанет строка «${esc(d.name)} (досрочно)», а лишнее уйдёт из будущих платежей
+      с конца графика — как на ноутбуке. Если банк после этого поменял ближайший платёж (например, стал 41,85), поправьте его — нажмите на платёж.</p>
+    <label class="field"><span>Сумма</span><input id="exAmount" inputmode="decimal" placeholder="0"></label>
+    <label class="field"><span>Дата</span><input id="exDate" type="date" value="${todayISO()}"></label>
+    <label style="display:flex;gap:10px;align-items:center;margin:4px 2px 10px"><input type="checkbox" id="exPaid" checked> уже внесла ●</label>
+    <button class="primary" data-a="go">Записать досрочное</button>`, (a) => {
+    if (a !== "go") return;
+    const amount = parseAmount(bg.querySelector("#exAmount").value), day = bg.querySelector("#exDate").value;
+    if (!(amount > 0)) { toast("Введите сумму"); return false; }
+    pushGeneric("pay_extra", { debt_id: d.id, debt_name: d.name, sum: amount, date: day || todayISO(), paid: bg.querySelector("#exPaid").checked },
+      `${d.name}: досрочно ${fmtExact(amount)}`, "💳", day || todayISO());
+    toast(`Досрочно «${d.name}» ${fmtExact(amount)} — уйдёт при синхронизации`);
+  });
+  setTimeout(() => { const i = bg.querySelector("#exAmount"); if (i) i.focus(); }, 150);
+}
+
 /* ------------------------------------------------------------------ напоминания и Календарь */
 /* Ноутбук присылает напоминания на 2 недели вперёд по дням — телефон берёт список на свой «сегодня»,
    даже если ноутбук давно спит. «Сегодня можно потратить» не берём: это считает карточка сверху. */
@@ -1924,9 +2127,20 @@ function todayReminders() {
   if (snap.reminders_by_day) list = snap.reminders_by_day[todayISO()] || [];
   return list.filter((r) => !r.text.startsWith("Сегодня можно потратить"));
 }
+function dupReminder(text) {
+  /* уже видно в другом месте: «не хватает / можно потратить» — розовая карта, платежи и внесения — «Кредиты» */
+  const t = String(text || "").toLowerCase();
+  return t.includes("не хватает") || t.includes("можно потратить") || t.includes("не отмечены оплаченными")
+    || t.includes("внесени") || t.includes("платёж") || t.includes("платеж") || t.includes("кредит");
+}
+function creditsAlert() {
+  /* просроченный или сегодняшний/завтрашний платёж — точка на вкладке «Кредиты» */
+  const t = todayISO(), tm = addDays(t, 1);
+  return nextPayments(40, 2).some((p) => p.due <= tm);
+}
 function importantItems() {
   const out = [];
-  todayReminders().forEach((r) => out.push({ icon: r.icon, text: r.text }));
+  todayReminders().filter((r) => !dupReminder(r.text)).forEach((r) => out.push({ icon: r.icon, text: r.text }));
   const old = entries.filter((e) => e.status === "pending" && Date.now() - new Date(e.created).getTime() > 86400000).length;
   if (old) out.push({ icon: "📤", text: `${old} запис${old === 1 ? "ь ждёт" : "и ждут"} отправки больше суток — нажмите «Синхронизировать»` });
   const bc = snap && snap.bank_check;
@@ -1953,6 +2167,8 @@ function updateBadge() {
   const n = importantItems().length;
   const tab = document.querySelector('.tabs button[data-page="sum"]');
   if (tab) tab.classList.toggle("has-dot", n > 0);
+  const ct = document.querySelector('.tabs button[data-page="credits"]');
+  if (ct) ct.classList.toggle("has-dot", !!(snap && creditsAlert()));
   try { if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch (e) { /* нет */ }
 }
 function icsEscape(t) { return String(t).replace(/[\\;,]/g, (c) => "\\" + c).replace(/\n/g, "\\n"); }
@@ -2007,6 +2223,7 @@ const TITLES = { add: ["Записать", "трата или доход"],
   sheet: ["Лист месяца", "как на компьютере"], funds: ["Фонды", "копилки на цели"],
   more: ["Ещё", "фонды, здоровье, календарь"],
   bank: ["Сверка", "с банком: карты и наличные"], ops: ["Операции", "всё, что записано, новые сверху"],
+  credits: ["Кредиты", "платежи и погашение"],
   sum: ["Главная", ""], set: ["Настройки", "синхронизация, PIN, уведомления"] };
 function whenText(iso) {
   /* «сегодня в 13:40», «вчера в 21:05», «19.10 в 08:30» */
@@ -2082,6 +2299,10 @@ function lastSpends(n = 4) {
   out.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (a.created < b.created ? 1 : a.created > b.created ? -1 : 0)));
   return out.slice(0, n);
 }
+function lastSpendsHint() {
+  const f = lastSpends(1)[0];
+  return f ? `<p class="hint" style="margin:0 4px 10px">🧾 В банке смотрите операции после <b>${ddmm(f.date)} — «${esc(f.name)}» ${fmt(f.amount)}</b>: что раньше, уже записано.</p>` : "";
+}
 function lastSpendsCard() {
   const list = lastSpends();
   if (!list.length) return "";
@@ -2105,8 +2326,11 @@ function staleBanner() {
 }
 function showPage(p) {
   document.querySelectorAll(".page").forEach((s) => s.classList.toggle("active", s.id === "page-" + p));
-  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.page === p));
+  /* «Операции» — часть «Листа», «Сверка» — часть «Главной»: подсвечиваем их вкладки */
+  const tab = p === "ops" ? "sheet" : p === "bank" ? "sum" : p;
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.page === tab));
   if (p === "bank") renderBank();
+  if (p === "credits") renderCredits();
   $("title").textContent = TITLES[p][0];
   $("subtitle").textContent = p === "sum" ? syncStamp() : TITLES[p][1];
   if (p === "ops") renderOps();
@@ -2147,9 +2371,14 @@ function init() {
   });
   $("icsReset").addEventListener("click", () => { cfg.icsDone = []; saveCfg(); exportCalendar(); });
   document.addEventListener("click", (ev) => {
-    const t = ev.target.closest ? ev.target.closest("[data-sheet],[data-mode2],[data-fund],[data-fundpay],[data-go],[data-row],[data-addrow],[data-op],[data-opsm]") : null;
+    const t = ev.target.closest ? ev.target.closest("[data-quickdone],[data-view],[data-spend],[data-pay],[data-extra],[data-sheet],[data-mode2],[data-fund],[data-fundpay],[data-go],[data-row],[data-addrow],[data-op],[data-opsm]") : null;
     if (!t) return;
-    if (t.dataset.sheet !== undefined) { sheetIdx = Number(t.dataset.sheet); renderSheet(); }
+    if (t.dataset.quickdone !== undefined) { ev.stopPropagation(); quickDone(Number(t.dataset.quickdone)); }
+    else if (t.dataset.view !== undefined) setView(t.dataset.view);
+    else if (t.dataset.spend !== undefined) { ev.stopPropagation(); spendFromRow(Number(t.dataset.spend)); }
+    else if (t.dataset.pay !== undefined) payDialog(t.dataset.pay);
+    else if (t.dataset.extra !== undefined) extraDialog(Number(t.dataset.extra));
+    else if (t.dataset.sheet !== undefined) { sheetIdx = Number(t.dataset.sheet); renderSheet(); }
     else if (t.dataset.mode2) { sheetMode = t.dataset.mode2; renderSheet(); }
     else if (t.dataset.fund !== undefined) topUpFund(Number(t.dataset.fund));
     else if (t.dataset.fundpay !== undefined) payFromFund(Number(t.dataset.fundpay));
@@ -2158,6 +2387,7 @@ function init() {
     else if (t.dataset.op !== undefined) openOp(Number(t.dataset.op));
     else if (t.dataset.opsm !== undefined) { opsIdx = Number(t.dataset.opsm); renderOps(); }
     else if (t.dataset.go === "ics") exportCalendar();
+    else if (t.dataset.go === "funds") { cfg.moreTab = "funds"; saveCfg(); showPage("more"); }
     else if (t.dataset.go) showPage(t.dataset.go);
   });
   $("addForm").addEventListener("submit", onSubmit);
