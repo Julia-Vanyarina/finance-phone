@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.13-a";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.15-a";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -1258,7 +1258,8 @@ function renderCal() {
 
 /* ------------------------------------------------------------------ записи «как есть» (поводы, счётчик, здоровье, рассрочка) */
 const GENERIC_KINDS = ["installment", "occ_new", "occ_set", "nocredit", "hp_book", "hp_done", "visit_done",
-  "wallet_save", "wallet_del", "wallet_done", "wallet_money", "wallet_move", "pay_set", "pay_extra", "refund_add", "refund_got"];
+  "wallet_save", "wallet_del", "wallet_done", "wallet_money", "wallet_move", "pay_set", "pay_extra", "refund_add", "refund_got",
+  "occ_gift"];
 function pushGeneric(kind, p, title, icon, date) {
   entries.unshift({ id: uid(), created: new Date().toISOString(), date: date || todayISO(), kind, p, title, icon: icon || "•",
     amount: 0, category: "", note: title, mode: "send", status: "pending" });
@@ -1384,7 +1385,10 @@ function visitDialog(v) {
 
 /* ------------------------------------------------------------------ 🎉 поводы */
 function occSum(o) {
-  return `потрачено <b class="red">${fmt(o.spent)}</b>${o.got ? ` · подарили <b class="green">+${fmt(o.got)}</b> · из своих <b>${fmt(o.net)}</b>` : ""}` +
+  const gifts = o.gifts_total != null ? o.gifts_total : o.got;
+  return `потрачено <b class="red">${fmt(o.spent)}</b>${gifts ? ` · подарили <b class="green">+${fmt(gifts)}</b>` : ""}` +
+    (o.returned ? ` · вернули <b class="green">+${fmt(o.returned)}</b>` : "") +
+    (o.got ? ` · из своих <b>${fmt(o.net)}</b>` : "") +
     (o.budget ? ` · бюджет ${fmt(o.budget)} → ${o.budget - o.net >= 0 ? `<span class="green">осталось ${fmt(o.budget - o.net)}</span>` : `<span class="red">сверх ${fmt(o.net - o.budget)}</span>`}` : "");
 }
 function renderOcc() {
@@ -1430,15 +1434,74 @@ function occNewDialog() {
     $("ocEmo").value = s.emoji; $("ocName").value = s.name; $("ocStart").value = s.start; $("ocEnd").value = s.end;
   }));
 }
+function occGiftsHtml(o) {
+  const list = o.gifts || [];
+  const pend = pendingOf("occ_gift", (p) => p.occasion_id === o.id);
+  const delSet = new Set(pend.filter((e) => e.p.delete).map((e) => e.p.gift_id));
+  let h = list.map((g, i) => `<div class="line"><span>${g.money ? "💵" : "🎁"} ${esc(g.who)}${g.what && g.what !== "деньги" ? ` · ${esc(g.what)}` : ""}
+      ${g.auto ? '<span class="muted"> · из листа</span>' : ""}${delSet.has(g.id) ? '<span class="muted"> · удалится</span>' : ""}</span>
+      <span class="r green">${fmtExact(g.amount)}${!g.auto && !delSet.has(g.id) ? ` <button type="button" class="gdel" data-gdel="${i}" aria-label="Удалить" style="border:0;background:none;color:var(--muted);padding:0 0 0 8px;font-size:15px;width:auto;min-width:0;margin:0;display:inline">✕</button>` : ""}</span></div>`).join("");
+  pend.filter((e) => !e.p.delete).forEach((e) => {
+    h += `<div class="line"><span>${e.p.money ? "💵" : "🎁"} ${esc(e.p.who)}${e.p.what ? ` · ${esc(e.p.what)}` : ""}<span class="muted"> · ждёт отправки</span></span>
+      <span class="r green">${fmtExact(e.p.sum)}</span></div>`;
+  });
+  if (!h) h = '<p class="hint">Подаренные деньги из листа (доход «Подарок») появятся здесь сами, когда отметите их в операциях. Вещи — «+ Подарок» и примерная стоимость.</p>';
+  let cmp = "";
+  if (o.gifts_total) {
+    const d = o.diff || 0;
+    cmp = `<p class="hint" style="margin:6px 0 0">Подарили всего <b>${fmt(o.gifts_total)}</b>: деньгами ${fmt(o.gift_money || 0)} · вещами ${fmt(o.gift_things || 0)}<br>` +
+      (d > 0.5 ? `<span class="green">подарили на ${fmt(d)} больше, чем потратила</span>` :
+       d < -0.5 ? `<span class="red">потратила на ${fmt(-d)} больше, чем подарили</span>` : "подарили столько же, сколько потратила") + "</p>";
+  }
+  return `<h3 style="margin:14px 0 4px">🎁 Подарки</h3>${h}${cmp}`;
+}
 function occDetail(o) {
   const ops = o.ops.map((x) => `<div class="line"><span>${ddmm(x.date)} · ${esc(x.name)}</span>
     <span class="r ${x.kind === "income" ? "green" : ""}">${x.kind === "income" ? "+" : "−"}${fmtExact(x.amount)}</span></div>`).join("");
-  sheetDialog(`<h2>${esc(o.emoji)} ${esc(o.name)}</h2><p class="hint">${ddmm(o.start)}–${ddmm(o.end)}.${o.end.slice(0, 4)}</p>
+  const bg = sheetDialog(`<h2>${esc(o.emoji)} ${esc(o.name)}</h2><p class="hint">${ddmm(o.start)}–${ddmm(o.end)}.${o.end.slice(0, 4)}</p>
     <div style="margin-bottom:8px">${occSum(o)}</div>
     ${ops || '<p class="hint">Операций пока нет.</p>'}
-    <button class="primary" data-a="pick" style="margin-top:10px">✓ Отметить операции…</button>`, (a) => {
+    <button class="primary" data-a="pick" style="margin-top:10px">✓ Отметить операции…</button>
+    ${occGiftsHtml(o)}
+    <button class="primary" data-a="gift" style="margin-top:10px">+ Подарок</button>`, (a) => {
     if (a === "pick") setTimeout(() => occPick(o), 50);
+    if (a === "gift") setTimeout(() => occGiftDialog(o), 50);
   });
+  bg.querySelectorAll("[data-gdel]").forEach((b) => b.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const g = (o.gifts || [])[Number(b.dataset.gdel)];
+    if (!g || !confirm(`Удалить подарок «${g.what}» от ${g.who}?`)) return;
+    pushGeneric("occ_gift", { occasion_id: o.id, gift_id: g.id, delete: true, who: g.who, what: g.what, money: g.money, sum: g.amount },
+      `${o.emoji} подарок удалён: ${g.who}`, "🎁");
+    b.closest(".line").querySelector(".r").innerHTML = '<span class="muted">удалится</span>';
+    toast("Подарок удалится при синхронизации");
+  }));
+}
+function occGiftDialog(o) {
+  const bg = sheetDialog(`<h2>🎁 Подарок — ${esc(o.name)}</h2>
+    <label class="field"><span>От кого</span><input id="gWho" placeholder="Бабушка Галя, коллеги…"></label>
+    <div class="seg" id="gKind" style="margin-bottom:10px"><button type="button" data-k="0" class="on">🎁 Вещь</button><button type="button" data-k="1">💵 Деньги</button></div>
+    <label class="field" id="gWhatBox"><span>Что подарили</span><input id="gWhat" placeholder="сертификат, духи, цветы…"></label>
+    <label class="field"><span id="gSumLbl">Примерная стоимость</span><input id="gSum" inputmode="decimal" placeholder="0"></label>
+    <p class="hint" id="gHint">Вещь — сколько она примерно стоит. В «из своих» не входит, только в «подарили всего».</p>
+    <button class="primary" data-a="save">Сохранить</button>`, (a) => {
+    if (a !== "save") return;
+    const money = bg.querySelector("#gKind .on").dataset.k === "1";
+    const who = $("gWho").value.trim(), what = money ? "деньги" : $("gWhat").value.trim();
+    const sum = parseAmount($("gSum").value || "0");
+    if (!who && !what) { toast("Впишите, от кого или что подарили"); return false; }
+    if (!(sum > 0)) { toast("Впишите сумму или примерную стоимость"); return false; }
+    pushGeneric("occ_gift", { occasion_id: o.id, who: who || "—", what, money, sum }, `${o.emoji} ${who || "подарок"}: ${money ? "деньги" : what} ${fmt(sum)}`, "🎁");
+    toast("Подарок запишется при синхронизации");
+  });
+  bg.querySelectorAll("#gKind button").forEach((b) => b.addEventListener("click", () => {
+    bg.querySelectorAll("#gKind button").forEach((x) => x.classList.toggle("on", x === b));
+    const money = b.dataset.k === "1";
+    $("gWhatBox").hidden = money;
+    $("gSumLbl").textContent = money ? "Сумма" : "Примерная стоимость";
+    $("gHint").textContent = money ? "Деньги, которые записаны в листе доходом «Подарок», здесь не пишите — отметьте их в «✓ Отметить операции…». Сюда — наличные и переводы, которых в листе нет."
+      : "Вещь — сколько она примерно стоит. В «из своих» не входит, только в «подарили всего».";
+  }));
 }
 function occPick(o) {
   if (!SRV) { toast("Отмечать операции можно, когда телефон подключён к серверу"); return; }
