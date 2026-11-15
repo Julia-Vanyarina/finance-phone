@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.11-c";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.13-a";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -408,10 +408,12 @@ function categories() {
 function planRows() {
   if (!snap || !snap.halves) return [];
   const out = [];
+  /* строки, из которых можно потратить: и с остатком, и уже потраченные (строка вырастет — будет видно
+     перерасход, как на ноутбуке). Строки с остатком — первыми. Кредиты, фонды и пополнения фондов — нельзя. */
   snap.halves.forEach((h) => h.rows.forEach((r) => {
-    if (!r.credit && !r.fund && r.left > 0.5) out.push({ ...r, half: h.half, htitle: h.title });
+    if (canSpendRow(r)) out.push({ ...r, half: h.half, htitle: h.title });
   }));
-  return out;
+  return out.sort((a, b) => (b.left > 0.5) - (a.left > 0.5));
 }
 function fillForm() {
   const cat = $("category"), keep = cat.value;
@@ -423,7 +425,7 @@ function fillForm() {
   $("rowField").hidden = kind !== "expense" || !rows.length;
   const rowSel = $("row"), keepRow = rowSel.value;
   rowSel.innerHTML = `<option value="">— не из плана, новой строкой —</option>` + rows.map((r) =>
-    `<option value="${r.id}">${esc(r.name)} · ост. ${fmt(r.left)} (${esc(r.htitle.toLowerCase())})</option>`).join("");
+    `<option value="${r.id}">${esc(r.name)} · ${r.left > 0.5 ? "ост. " + fmt(r.left) : "лимит исчерпан"} (${esc(r.htitle.toLowerCase())})</option>`).join("");
   if (keepRow && rows.some((r) => String(r.id) === keepRow)) rowSel.value = keepRow;
   if (!$("date").value) $("date").value = todayISO();
   document.querySelectorAll("#addForm .seg button").forEach((b) => b.classList.toggle("on", b.dataset.kind === kind));
@@ -1256,7 +1258,7 @@ function renderCal() {
 
 /* ------------------------------------------------------------------ записи «как есть» (поводы, счётчик, здоровье, рассрочка) */
 const GENERIC_KINDS = ["installment", "occ_new", "occ_set", "nocredit", "hp_book", "hp_done", "visit_done",
-  "wallet_save", "wallet_del", "wallet_done", "wallet_money", "wallet_move", "pay_set", "pay_extra"];
+  "wallet_save", "wallet_del", "wallet_done", "wallet_money", "wallet_move", "pay_set", "pay_extra", "refund_add", "refund_got"];
 function pushGeneric(kind, p, title, icon, date) {
   entries.unshift({ id: uid(), created: new Date().toISOString(), date: date || todayISO(), kind, p, title, icon: icon || "•",
     amount: 0, category: "", note: title, mode: "send", status: "pending" });
@@ -1721,9 +1723,8 @@ function isSpendRow(r) {
   return SPEND_CATS.includes(r.category) && !one;
 }
 function rowQuick(r) {
-  if (r.done || pendingDone(r.id)) return "";
   if (canSpendRow(r) && isSpendRow(r)) return `<button type="button" class="row-plus" data-spend="${r.id}" aria-label="Потратить из строки">＋</button>`;
-  if (r.from_fund) return "";
+  if (r.from_fund || r.done || pendingDone(r.id)) return "";
   return `<button type="button" class="row-plus ring" data-quickdone="${r.id}" aria-label="Отметить оплаченной">○</button>`;
 }
 function quickDone(id) {
@@ -1734,11 +1735,13 @@ function quickDone(id) {
   saveEntries(); renderAll(); autoSync(800);
   toast(`«${f.r.name}» — оплачено ●. Отменить: «Операции → С телефона» → запись → Удалить`, 4200);
 }
-function canSpendRow(r) { return !r.credit && !r.from_fund && !r.fund && !String(r.category || "").startsWith("В фонд") && !r.done && r.left > 0.5; }
+function canSpendRow(r) { return !r.credit && !r.from_fund && !r.fund && !String(r.category || "").startsWith("В фонд"); }
 function spendFromRow(id) {
   kind = "expense"; mode = "send"; setEditing(null);
   showPage("add"); fillForm();
   $("row").value = String(id); onRowChange(); $("amount").focus();
+  const f = findRow(id);
+  if (f && f.r.left <= 0.5) toast(`Лимит «${f.r.name}» исчерпан — трата всё равно запишется, строка вырастет (будет видно перерасход)`, 3800);
 }
 function openRow(id) {
   const f = findRow(id);
@@ -1752,13 +1755,24 @@ function openRow(id) {
   const spHtml = sp.length ? `<div class="spend-list">${sp.map((x) => `<div class="line"><span>${ddmm(x.date)} · ${esc(x.note || (x.amount < 0 ? "вернули" : "трата"))}</span>
       <span class="r ${x.amount < 0 ? "green" : ""}">${x.amount < 0 ? "↩ +" : "−"}${fmtExact(Math.abs(x.amount))}</span></div>`).join("")}</div>` : "";
   const canEdit = !r.credit && !r.from_fund;
+  const canRefund = !r.credit && !r.from_fund && (sp.some((x) => x.amount > 0) || r.done);
+  const waits = ((snap && snap.pending_refunds) || []).filter((p) => p.tr_id === id);
+  const waitsLocal = pendingOf("refund_add", (x) => x.row_id === id);
+  const gotLocal = pendingOf("refund_got");
+  const wHtml = waits.length || waitsLocal.length ? `<div class="sec" style="margin:10px 0 4px">↩ Возвраты</div>` +
+    waits.map((p) => { const got = gotLocal.some((g) => g.p.pending_id === p.id);
+      return `<div class="line"><span>жду ${fmt(p.amount)} · ${esc(p.note)}</span>
+      ${got ? '<span class="badge pending">пришёл · ждёт отправки</span>' : `<button class="ghost small" type="button" data-a="got${p.id}">Пришёл</button>`}</div>`; }).join("") +
+    waitsLocal.map((x) => `<div class="line"><span>${x.p.got ? "вернули" : "жду"} ${fmt(x.p.sum)} · ${esc(x.p.spend_note || r.name)} · ${esc(x.p.who)}</span>
+      <span class="badge pending">ждёт отправки</span></div>`).join("") : "";
   sheetDialog(`<h2>${esc(r.name)} · ${fmt(r.amount)}</h2>
     <p class="hint">${esc(r.category)} · ${f.half === 1 ? "с зарплаты" : "с аванса"}${r.date ? " · " + ddmm(r.date) : ""}${r.spent ? ` · потрачено ${fmt(r.spent)}, осталось ${fmt(Math.max(0, r.left))}` : ""}${r.done ? " · оплачено ●" : ""}${pendingDone(id) ? " · отметка ● ждёт синхронизации" : ""}${r.from_fund ? " · оплачено из фонда" : ""}</p>
-    ${spHtml}
+    ${spHtml}${wHtml}
     <div class="acts">
       ${canSpend ? '<button class="primary wide" data-a="spend">＋ Потратила из этой строки</button>' : ""}
       ${canDone ? `<button class="ghost ${canFund ? "" : "wide"}" data-a="done">● Оплачено</button>` : ""}
       ${canFund ? '<button class="ghost" data-a="fund">🐷 Из фонда…</button>' : ""}
+      ${canRefund ? '<button class="ghost wide" data-a="refund">↩ Вернут часть…</button>' : ""}
       ${r.credit ? '<button class="ghost wide" data-a="credit">💳 Открыть в «Кредитах»</button>' : ""}
       ${canEdit ? '<button class="ghost" data-a="edit">✏️ Изменить</button>' : ""}
       ${canEdit ? '<button class="ghost" data-a="move">📅 Перенести</button>' : ""}
@@ -1773,6 +1787,14 @@ function openRow(id) {
     }
     if (a === "edit" || a === "move") { setTimeout(() => editRowDialog(id, r, f.half, a === "move"), 50); }
     if (a === "spend") spendFromRow(id);
+    if (a === "refund") { setTimeout(() => refundDialog(id, r), 50); }
+    if (a.startsWith("got")) {
+      const p = waits.find((x) => x.id === Number(a.slice(3)));
+      if (p) {
+        pushGeneric("refund_got", { pending_id: p.id, sum: p.amount, note: p.note }, `↩ пришёл возврат ${fmt(p.amount)}`, "↩");
+        toast(`Возврат ${fmt(p.amount)} — пришёл, уйдёт на компьютер при синхронизации`);
+      }
+    }
     if (a === "credit") showPage("credits");
     if (a === "fund") { setTimeout(() => rowFundDialog(id, r, f.half, funds), 50); }
     if (a === "done") {
@@ -1782,6 +1804,43 @@ function openRow(id) {
       toast(`«${r.name}» отмечено ● — уйдёт на компьютер при синхронизации`);
     }
   });
+}
+function refundDialog(id, r) {
+  /* ↩ часть покупки вернут (или уже вернули): Сева перевёл свою часть за «Метро», магазин вернёт за товар */
+  const buys = (r.spends || []).filter((x) => x.amount > 0);
+  const opts = buys.map((x, i) => `<option value="${i}">${ddmm(x.date)} · ${esc(x.note || "покупка")} · ${fmtExact(x.amount)}</option>`).join("")
+    + (buys.length ? "" : `<option value="-1">вся строка · ${fmtExact(r.amount)}</option>`);
+  let got = true;
+  const bg = sheetDialog(`<h2>↩ Вернут часть · ${esc(r.name)}</h2>
+    <label class="field"><span>За какую покупку</span><select id="rfBuy">${opts}</select></label>
+    <label class="field"><span>Сколько</span><input id="rfSum" inputmode="decimal" placeholder="0"></label>
+    <label class="field"><span>Кто вернёт</span><input id="rfWho" value="${esc(cfg.lastWho || "Сева")}"></label>
+    <div class="seg" id="rfMode"><button type="button" class="on" data-m="got">Уже вернули</button><button type="button" data-m="wait">Жду возврат</button></div>
+    <label class="field" id="rfDateF"><span>Когда вернули</span><input id="rfDate" type="date" value="${todayISO()}"></label>
+    <p class="hint" id="rfHint">Возврат запишется в строку минусом: план строки останется, а возвращённые деньги снова будут доступны в ней.</p>
+    <button class="primary" data-a="go">Записать</button>`, (a) => {
+    if (a !== "go") return;
+    const sum = parseAmount(bg.querySelector("#rfSum").value);
+    if (!(sum > 0)) { toast("Введите сумму"); return false; }
+    const bi = Number(bg.querySelector("#rfBuy").value), b = bi >= 0 ? buys[bi] : null;
+    if (b && sum > b.amount + 0.5) { toast(`Больше, чем стоила покупка (${fmt(b.amount)})`); return false; }
+    const who = bg.querySelector("#rfWho").value.trim() || "кто-то";
+    cfg.lastWho = who; saveCfg();
+    const day = got ? (bg.querySelector("#rfDate").value || todayISO()) : todayISO();
+    pushGeneric("refund_add", { row_id: id, row_name: r.name, spend_id: b ? b.id || null : null, spend_date: b ? b.date : null,
+      spend_amount: b ? b.amount : null, spend_note: b ? b.note : "", sum, who, got },
+      `↩ ${got ? "вернули" : "жду"} ${fmtExact(sum)} за «${b ? b.note || "покупку" : r.name}» · ${who}`, "↩", day);
+    toast(got ? `↩ ${who}: ${fmt(sum)} — уйдёт в лист при синхронизации` : `Жду возврат ${fmt(sum)} — сверка будет его учитывать`);
+  });
+  bg.querySelectorAll("#rfMode button").forEach((btn) => btn.addEventListener("click", () => {
+    got = btn.dataset.m === "got";
+    bg.querySelectorAll("#rfMode button").forEach((x) => x.classList.toggle("on", x === btn));
+    bg.querySelector("#rfDateF").hidden = !got;
+    bg.querySelector("#rfHint").textContent = got
+      ? "Возврат запишется в строку минусом: план строки останется, а возвращённые деньги снова будут доступны в ней."
+      : "Пока денег нет, сверка с банком покажет это ожидание отдельно. Когда придут — откройте строку и нажмите «Пришёл».";
+  }));
+  setTimeout(() => { const i = bg.querySelector("#rfSum"); if (i) i.focus(); }, 150);
 }
 function rowFundDialog(id, r, half, funds) {
   /* строку листа оплатили деньгами фонда: в колонку встанет снятие «Из фонда …», строка — ● */
