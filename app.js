@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.16-e";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.16-g";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -704,7 +704,7 @@ function heroCard() {
   const chips = [`до ${ddmm(t.next_pay)} · ${days} дн.`, `колонка «${t.column.toLowerCase()}»`];
   if (snap.cards != null) chips.push(`на картах ≈ ${fmt(snap.cards)}`);
   chips.push(snap.bank && snap.bank.last_check ? `сверка ${ddmm(snap.bank.last_check)}` : "сверки ещё не было");
-  return `<div class="card hero aura">${tulips("hero-tulips")}
+  return `<div class="card hero aura glass">${starCluster()}
     <div class="k"><span class="dot ${status}"></span>${free < 0 ? "До выплаты не хватает" : "Можно потратить сегодня"}</div>
     <div class="big countup" data-n="${Math.round(free < 0 ? -free : perDay)}" data-pre="${free < 0 ? "" : "~"}">${free < 0 ? fmt(-free) : "~" + fmt(perDay)}</div>
     <div class="hint">${free < 0 ? "денег колонки не хватает на всё запланированное" : `свободно до выплаты ${fmt(free)}`}</div>
@@ -733,15 +733,15 @@ function weekStrip() {
 }
 /* разделы-папки: цвет папки, ярлычок, куда ведёт */
 const SECTIONS = {
-  sheet:   { name: "Лист месяца",  color: "#D8D27A", ink: "#4A4512" },
-  credits: { name: "Кредиты",      color: "#AFC6F2", ink: "#23365F" },
-  funds:   { name: "Фонды",        color: "#F3C3CD", ink: "#6A2A3A" },
-  wallet:  { name: "До зарплаты",  color: "#D9B5C6", ink: "#5A2F45" },
-  health:  { name: "Здоровье",     color: "#BFDDC8", ink: "#24503A" },
-  occ:     { name: "Поводы",       color: "#FFCDAE", ink: "#6B3517" },
-  cal:     { name: "Календарь",    color: "#CFC8F3", ink: "#3A2F72" },
-  bank:    { name: "Сверка",       color: "#F2E2A6", ink: "#5C4A10" },
-  ops:     { name: "Операции",     color: "#EBD8D2", ink: "#5A3B33" },
+  sheet:   { name: "Лист месяца",  color: "#BCD8F6", ink: "#23406B" },
+  credits: { name: "Кредиты",      color: "#F6C9D8", ink: "#6E2A47" },
+  funds:   { name: "Фонды",        color: "#D3E6F9", ink: "#24486F" },
+  wallet:  { name: "До зарплаты",  color: "#FAD9E4", ink: "#6E2A47" },
+  health:  { name: "Здоровье",     color: "#C9E4F2", ink: "#1F4A5E" },
+  occ:     { name: "Поводы",       color: "#F3CFE0", ink: "#6A2D52" },
+  cal:     { name: "Календарь",    color: "#D7DCF6", ink: "#2E3B78" },
+  bank:    { name: "Сверка",       color: "#E2EEFA", ink: "#2A4566" },
+  ops:     { name: "Операции",     color: "#F8E3EB", ink: "#6A3348" },
 };
 function tulips(cls = "") {
   /* два размытых тюльпана — голубой и персиковый, как на картинке */
@@ -764,6 +764,25 @@ function tulips(cls = "") {
       <path d="M160 150 C 150 96, 166 58, 182 52 C 192 70, 200 72, 210 48 C 222 70, 230 70, 240 52 C 258 64, 266 104, 252 150 C 238 182, 176 184, 160 150 Z" fill="url(#tgo)"/>
     </g>
   </svg>`;
+}
+const STAR_SVG = (id) => `<svg viewBox="0 0 24 24"><defs><linearGradient id="sg${id}" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#FFFFFF"/><stop offset=".35" stop-color="#C9D3E6"/><stop offset=".55" stop-color="#F6E7F7"/>
+  <stop offset=".75" stop-color="#B9C7E3"/><stop offset="1" stop-color="#FFFFFF"/></linearGradient></defs>
+  <path d="M12 1.5 L14.2 9.8 L22.5 12 L14.2 14.2 L12 22.5 L9.8 14.2 L1.5 12 L9.8 9.8 Z" fill="url(#sg${id})" stroke="rgba(255,255,255,.9)" stroke-width=".6"/></svg>`;
+let starSeq = 0;
+function starCluster() {
+  /* серебристые переливающиеся звёздочки в карточке */
+  return [[80, 10, 34, 0], [90, 42, 20, .8], [70, 58, 16, 1.6], [86, 74, 26, 2.2], [62, 16, 14, 1.1]]
+    .map(([x, y, sz, d]) => `<i class="star" style="left:${x}%;top:${y}%;width:${sz}px;height:${sz}px;animation-delay:${d}s">${STAR_SVG(++starSeq)}</i>`).join("");
+}
+function skyStars() {
+  /* звёзды на фоне всего приложения */
+  if (document.querySelector(".bg .star")) return;
+  const bg = document.querySelector(".bg");
+  if (!bg) return;
+  bg.insertAdjacentHTML("beforeend", [[6, 14, 20, 0], [88, 9, 26, 1.2], [72, 33, 14, 2.4], [10, 48, 16, .6], [93, 60, 22, 1.8],
+    [28, 74, 14, 3], [82, 88, 18, .3], [48, 96, 12, 2]].map(([x, y, sz, d]) =>
+    `<i class="star" style="left:${x}%;top:${y}%;width:${sz}px;height:${sz}px;animation-delay:${d}s">${STAR_SVG(++starSeq)}</i>`).join(""));
 }
 function homeFolders() {
   /* папки разделов: стопкой, как картонные папки с ярлычками — нажмите, и папка откроется */
@@ -821,6 +840,7 @@ function plural(n, a, b, c) {
   return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c;
 }
 function renderSummary() {
+  skyStars();
   /* Главная: аура «можно сегодня», неделя, плитки разделов, важное */
   if (!snap) {
     $("summary").innerHTML = updateBanner() + `<div class="card empty">Сводка появится после первой синхронизации.<br>На компьютере: «☰ Ещё → 📲 Телефон → Настроить».</div>`;
@@ -829,7 +849,7 @@ function renderSummary() {
   const imp = importantItems();
   const impLine = (r) => `<div class="line"><span>${esc(r.icon)} ${esc(r.text)}</span></div>`;
   let h = updateBanner() + staleBanner() + heroCard() + weekStrip();
-  h += `<h3 class="sect">Мои папки</h3>` + homeFolders();
+  h += `<h3 class="sect">Мои папки <i class="star inl">${STAR_SVG(++starSeq)}</i></h3>` + homeFolders();
   h += imp.length ? `<div class="card imp" style="margin-top:16px"><h2>Важное <span class="cnt">${imp.length}</span></h2>${imp.slice(0, 2).map(impLine).join("")}` +
     (imp.length > 2 ? `<details><summary>ещё ${imp.length - 2}</summary>${imp.slice(2).map(impLine).join("")}</details>` : "") + `</div>` : "";
   h += `<p class="stamp">${esc(syncStamp())}</p>`;
@@ -966,7 +986,7 @@ function renderFunds() {
       <div class="hint">${esc(dl)}${f.auto ? ` · автоплатёж ${fmt(f.auto)} ${f.auto_day}-го` : ""}${f.planned ? ` · запланировано +${fmt(f.planned)}` : ""}</div>
       ${pend ? `<div class="hint">📱 с телефона ждёт: +${fmt(pend)}</div>` : ""}
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="ghost" type="button" data-fund="${i}">＋ Пополнить</button>
-      ${f.saved > 0 ? `<button class="ghost" type="button" data-fundpay="${i}">Оплатить из фонда</button>` : ""}</div></div>`;
+      <button class="ghost" type="button" data-fundpay="${i}">💳 Оплатить из фонда</button></div></div>`;
   });
   box.innerHTML = h;
 }
@@ -1937,7 +1957,7 @@ function openRow(id) {
   const canSpend = canSpendRow(r);
   const canDone = !r.done && !pendingDone(id);
   const sp = r.spends || [];
-  const funds = ((snap && snap.funds) || []).map((x, i) => ({ ...x, i })).filter((x) => x.saved > 0.5);
+  const funds = ((snap && snap.funds) || []).map((x, i) => ({ ...x, i }));
   const canFund = !r.credit && !r.from_fund && !r.done && !sp.length && funds.length;
   const spHtml = sp.length ? `<div class="spend-list">${sp.map((x) => `<div class="line"><span>${ddmm(x.date)} · ${esc(x.note || (x.amount < 0 ? "вернули" : "трата"))}</span>
       <span class="r ${x.amount < 0 ? "green" : ""}">${x.amount < 0 ? "↩ +" : "−"}${fmtExact(Math.abs(x.amount))}</span></div>`).join("")}</div>` : "";
@@ -2033,7 +2053,7 @@ function rowFundDialog(id, r, half, funds) {
   /* строку листа оплатили деньгами фонда: в колонку встанет снятие «Из фонда …», строка — ● */
   sheetDialog(`<h2>«${esc(r.name)}» ${fmt(r.amount)} — из какого фонда?</h2>
     <p class="hint">Для месяца это ноль: в колонке появится «Из фонда …» на ту же сумму, строка станет оплаченной ●, фонд уменьшится.</p>
-    ${funds.map((x) => `<button class="ghost" data-a="f${x.i}">${esc(x.name)} · в фонде ${fmt(x.saved)}</button>`).join("")}`, (a) => {
+    ${funds.map((x) => `<button class="ghost" data-a="f${x.i}">${esc(x.name)} · в фонде ${fmt(x.saved)}${x.saved < r.amount - 0.5 ? " ⚠" : ""}</button>`).join("")}`, (a) => {
     if (!a.startsWith("f")) return;
     const fund = snap.funds[Number(a.slice(1))];
     if (r.amount > fund.saved + 0.5 && !confirm(`В фонде ${fmt(fund.saved)}, а строка ${fmt(r.amount)} — фонд уйдёт в минус. Всё равно?`)) return false;
@@ -2207,22 +2227,37 @@ function payFromFund(i) {
   const def = want ? want[1] : "Другое";
   const bg = sheetDialog(`<h2>Оплатить из фонда «${esc(f.name)}»</h2>
     <p class="hint">В фонде ${fmt(f.saved)}. В листе появится «Из фонда …» и сама трата — для месяца это ноль, фонд уменьшится.</p>
+    <label class="field"><span>Оплатить строку листа</span><select id="fpRow"><option value="">— новая трата, не из листа —</option>
+      ${fundRows().map((x) => `<option value="${x.r.id}" data-half="${x.half}">${esc(x.r.name)} · ${fmt(x.r.amount)} · ${x.half === 1 ? "с зарплаты" : "с аванса"}</option>`).join("")}</select></label>
     <label class="field"><span>Сумма</span><input id="fpAmount" inputmode="decimal" placeholder="0"></label>
-    <label class="field"><span>На что (категория)</span><select id="fpCat">${cats.map((c) => `<option ${c === def ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
+    <label class="field" id="fpCatBox"><span>На что (категория)</span><select id="fpCat">${cats.map((c) => `<option ${c === def ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
     <label class="field"><span>Комментарий</span><input id="fpNote" placeholder="например: стоматолог"></label>
     <label class="field"><span>Дата</span><input id="fpDate" type="date" value="${todayISO()}"></label>
     <button class="primary" data-a="pay">Оплатить из фонда</button>`, (a) => {
     if (a !== "pay") return;
     const amount = parseAmount($("fpAmount").value);
     if (!(amount > 0)) { toast("Введите сумму"); return false; }
-    if (amount > f.saved + 0.5 && !confirm(`В фонде ${fmt(f.saved)}, а оплата ${fmt(amount)} — фонд уйдёт в минус. Всё равно оплатить?`)) return false;
+    if (amount > f.saved + 0.5 && !confirm(`В фонде ${fmt(f.saved)}, а оплата ${fmt(amount)} — фонд уйдёт в минус на ${fmt(amount - f.saved)}.\n` +
+      `Лучше: из фонда ${fmt(f.saved)}, а остальное — обычной тратой. Всё равно оплатить целиком из фонда?`)) return false;
+    const rid = $("fpRow").value ? Number($("fpRow").value) : null;
+    const fr = rid ? findRow(rid) : null;
     entries.unshift({ id: uid(), created: new Date().toISOString(), date: $("fpDate").value || todayISO(), kind: "fundpay",
-      fund: f.name, amount, category: $("fpCat").value, note: $("fpNote").value.trim(), half: 0, row_id: null,
-      mode: "send", status: "pending" });
+      fund: f.name, amount, category: fr ? fr.r.category : $("fpCat").value, note: fr ? fr.r.name : $("fpNote").value.trim(),
+      half: fr ? fr.half : 0, row_id: rid, row_name: fr ? fr.r.name : undefined, mode: "send", status: "pending" });
     saveEntries(); renderAll();
     toast(`Из «${f.name}» ${fmtExact(amount)} — уйдёт на компьютер при синхронизации`);
   });
+  bg.querySelector("#fpRow").addEventListener("change", () => {
+    const fr = $("fpRow").value ? findRow(Number($("fpRow").value)) : null;
+    $("fpCatBox").hidden = !!fr;
+    if (fr) { $("fpAmount").value = String(fr.r.amount).replace(".", ","); $("fpNote").value = fr.r.name; }
+  });
   setTimeout(() => { const i2 = bg.querySelector("#fpAmount"); if (i2) i2.focus(); }, 150);
+}
+function fundRows() {
+  /* строки текущего листа, которые можно оплатить из фонда: не кредит, не оплачены, без трат внутри */
+  return (snap.halves || []).flatMap((h) => h.rows.map((r) => ({ r, half: h.half })))
+    .filter(({ r }) => !r.credit && !r.from_fund && !r.done && !(r.spends || []).length && !pendingDone(r.id) && !/^В фонд/.test(r.category));
 }
 
 /* ------------------------------------------------------------------ 💳 Кредиты: ближайшие платежи и погашение */

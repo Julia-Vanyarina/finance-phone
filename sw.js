@@ -1,6 +1,6 @@
 /* Офлайн: приложение открывается и без интернета. Запросы к Яндексу не кэшируются. */
-const CACHE = "mf-phone-v46";
-const SHELL = ["./", "index.html", "config.js", "app.js", "style.css", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
+const CACHE = "mf-phone-v48";
+const SHELL = ["./", "index.html", "config.js", "app.js", "style.css", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png", "apple-touch-icon.png?v=star", "icon-192.png?v=star"];
 // version.json не кэшируется: по нему приложение узнаёт, что на GitHub есть версия новее
 
 self.addEventListener("install", (e) => {
