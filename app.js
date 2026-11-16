@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.16-c";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.16-e";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -704,38 +704,137 @@ function heroCard() {
   const chips = [`до ${ddmm(t.next_pay)} · ${days} дн.`, `колонка «${t.column.toLowerCase()}»`];
   if (snap.cards != null) chips.push(`на картах ≈ ${fmt(snap.cards)}`);
   chips.push(snap.bank && snap.bank.last_check ? `сверка ${ddmm(snap.bank.last_check)}` : "сверки ещё не было");
-  return `<div class="card hero">
+  return `<div class="card hero aura">${tulips("hero-tulips")}
     <div class="k"><span class="dot ${status}"></span>${free < 0 ? "До выплаты не хватает" : "Можно потратить сегодня"}</div>
-    <div class="big">${free < 0 ? fmt(-free) : "~" + fmt(perDay)}</div>
+    <div class="big countup" data-n="${Math.round(free < 0 ? -free : perDay)}" data-pre="${free < 0 ? "" : "~"}">${free < 0 ? fmt(-free) : "~" + fmt(perDay)}</div>
     <div class="hint">${free < 0 ? "денег колонки не хватает на всё запланированное" : `свободно до выплаты ${fmt(free)}`}</div>
     ${t.note ? `<div class="hint">${esc(t.note)}</div>` : ""}
     ${extra > 0 ? `<div class="hint">учтены траты с телефона сверх плана: −${fmt(extra)}</div>` : ""}
     <div class="chipline">${chips.map((c) => `<span>${esc(c)}</span>`).join("")}</div></div>`;
 }
+const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+const WD_FULL = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+const MONTHS_G = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+function weekStrip() {
+  /* 7 дней с сегодняшнего: ★ — платёж, день рождения, приём, зарплата/аванс */
+  const t = todayISO(), pays = new Map();
+  nextPayments(30, 10).forEach((p) => pays.set(p.due, (pays.get(p.due) || 0) + p.amount));
+  let h = `<div class="week" data-go="more:cal">`;
+  for (let i = 0; i < 7; i++) {
+    const iso = addDays(t, i), d = new Date(iso + "T00:00:00");
+    const ev = calEvents(iso);
+    const payday = snap.today && snap.today.next_pay === iso;
+    const star = pays.has(iso) || payday || ev.length;
+    const tip = [payday ? "выплата" : "", pays.has(iso) ? "платёж " + fmt(pays.get(iso)) : "", ...ev.map((e) => e.t)].filter(Boolean).join(" · ");
+    h += `<div class="wd ${i === 0 ? "on" : ""} ${payday ? "pay" : ""}" title="${esc(tip)}"><span class="st">${star ? (payday ? "₽" : "★") : ""}</span>
+      <span class="n">${WD[d.getDay()]}</span><b>${d.getDate()}</b></div>`;
+  }
+  return h + `</div>`;
+}
+/* разделы-папки: цвет папки, ярлычок, куда ведёт */
+const SECTIONS = {
+  sheet:   { name: "Лист месяца",  color: "#D8D27A", ink: "#4A4512" },
+  credits: { name: "Кредиты",      color: "#AFC6F2", ink: "#23365F" },
+  funds:   { name: "Фонды",        color: "#F3C3CD", ink: "#6A2A3A" },
+  wallet:  { name: "До зарплаты",  color: "#D9B5C6", ink: "#5A2F45" },
+  health:  { name: "Здоровье",     color: "#BFDDC8", ink: "#24503A" },
+  occ:     { name: "Поводы",       color: "#FFCDAE", ink: "#6B3517" },
+  cal:     { name: "Календарь",    color: "#CFC8F3", ink: "#3A2F72" },
+  bank:    { name: "Сверка",       color: "#F2E2A6", ink: "#5C4A10" },
+  ops:     { name: "Операции",     color: "#EBD8D2", ink: "#5A3B33" },
+};
+function tulips(cls = "") {
+  /* два размытых тюльпана — голубой и персиковый, как на картинке */
+  return `<svg class="tulips ${cls}" viewBox="0 0 300 420" aria-hidden="true">
+    <defs>
+      <filter id="tb1" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="9"/></filter>
+      <filter id="tb2" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4"/></filter>
+      <radialGradient id="tgo" cx="55%" cy="55%" r="60%"><stop offset="0" stop-color="#FF8F6E"/><stop offset=".7" stop-color="#FFB892"/><stop offset="1" stop-color="#FFD6B5"/></radialGradient>
+      <radialGradient id="tgb" cx="45%" cy="60%" r="60%"><stop offset="0" stop-color="#7F95F2"/><stop offset=".7" stop-color="#A9B8F7"/><stop offset="1" stop-color="#D5CCF7"/></radialGradient>
+    </defs>
+    <g filter="url(#tb2)" opacity=".75">
+      <path d="M92 410 C 96 330, 94 260, 86 200" stroke="#A9D3B9" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <path d="M200 410 C 198 330, 204 250, 212 150" stroke="#B7D9B5" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <path d="M94 330 C 60 300, 40 290, 22 296 C 40 320, 70 335, 94 340 Z" fill="#A9D3B9"/>
+      <path d="M202 330 C 240 290, 262 270, 282 262 C 270 300, 240 330, 204 345 Z" fill="#B9DCC2"/>
+      <path d="M200 380 C 170 340, 150 320, 128 312 C 140 350, 170 375, 200 392 Z" fill="#C3E0C8"/>
+    </g>
+    <g filter="url(#tb1)">
+      <path d="M48 196 C 40 150, 52 116, 64 110 C 74 126, 80 128, 88 108 C 98 126, 104 126, 114 110 C 128 120, 136 156, 124 196 C 112 222, 62 224, 48 196 Z" fill="url(#tgb)"/>
+      <path d="M160 150 C 150 96, 166 58, 182 52 C 192 70, 200 72, 210 48 C 222 70, 230 70, 240 52 C 258 64, 266 104, 252 150 C 238 182, 176 184, 160 150 Z" fill="url(#tgo)"/>
+    </g>
+  </svg>`;
+}
+function homeFolders() {
+  /* папки разделов: стопкой, как картонные папки с ярлычками — нажмите, и папка откроется */
+  const t = snap.today;
+  const toPay = (snap.halves || []).flatMap((h) => h.rows).filter((r) => !r.done && !r.from_fund && (r.left > 0.5 || !r.spent));
+  const leftSum = toPay.reduce((a, r) => a + (r.spent ? r.left : r.amount), 0);
+  const nx = nextPayments(1)[0];
+  const funds = (snap.funds || []).reduce((a, f) => a + (f.saved || 0), 0);
+  const w = snap.wallet ? walletSummary() : null;
+  const hv = snap.health && (snap.health.visits || []).filter((v) => !v.went)[0];
+  const cyc = snap.health && snap.health.cycle;
+  const oc = snap.occasions && (snap.occasions.list || [])[0];
+  const evToday = calEvents(todayISO());
+  const bank = snap.bank && snap.bank.last_check;
+  const n = (x, a, b, c) => `${x} ${plural(x, a, b, c)}`;
+  const items = [
+    ["sheet", toPay.length ? fmt(leftSum) : "всё оплачено ●", toPay.length ? `ещё к оплате · ${n(toPay.length, "строка", "строки", "строк")}` : (t ? `колонка «${t.column.toLowerCase()}»` : "")],
+    ["credits", nx ? fmt(nx.amount) : "платежей нет", nx ? `ближайший — ${ddmm(nx.due)} · ${nx.name}` : ""],
+    ["funds", fmt(funds), n((snap.funds || []).length, "копилка", "копилки", "копилок")],
+    ["wallet", w ? (w.count ? n(w.count, "дело", "дела", "дел") : "пусто") : "—", w ? walletHeadline(w) : "траты и долги до выплаты"],
+    ["health", hv ? `${ddmm(hv.date)} · ${hv.title}` : cyc ? `день цикла ${cyc.day}` : "врачи и цикл", hv ? "ближайший приём" : cyc && cyc.next ? `следующие ≈ ${ddmm(cyc.next)}` : ""],
+    ["occ", oc ? fmt(oc.spent) : "праздники", oc ? oc.name : "траты и подарки на поводы"],
+    ["cal", evToday.length ? n(evToday.length, "дело", "дела", "дел") + " сегодня" : "сегодня свободно", evToday.slice(0, 2).map((e) => e.t).join(" · ") || "дни рождения, платежи, дела"],
+    ["bank", bank ? `сверка ${ddmm(bank)}` : "ещё не было", "сверить карты и наличные"],
+    ["ops", "всё записанное", "поиск: кафе, такси, Озон…"],
+  ];
+  const tabPos = ["l", "m", "r", "m", "l", "r", "m", "l", "r"];
+  return `<div class="folders">` + items.map(([k, big, sub], i) => {
+    const sec = SECTIONS[k];
+    return `<button type="button" class="folder tab-${tabPos[i]}" data-folder="${k}" style="--fc:${sec.color};--fi:${sec.ink};z-index:${i + 1}">
+      <span class="ftab">${sec.name}</span>
+      <span class="fbody"><span class="fbig">${esc(big)}</span><span class="fsub">${esc(sub)}</span><span class="fgo">›</span></span>
+    </button>`;
+  }).join("") + `</div>`;
+}
+function openFolder(k, el) {
+  const go = () => {
+    if (["funds", "wallet", "health", "occ", "cal"].includes(k)) { cfg.moreTab = k; saveCfg(); showPage("more"); }
+    else showPage(k);
+  };
+  if (el) { el.classList.add("lift"); setTimeout(go, 180); } else go();
+}
+function countUp(el) {
+  /* число на карточке «Можно сегодня» набегает — живее, чем просто текст */
+  const target = Number(el.dataset.n || 0), t0 = performance.now(), dur = 650;
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = (el.dataset.pre || "") + fmt(target * e);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function plural(n, a, b, c) {
+  const m10 = n % 10, m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c;
+}
 function renderSummary() {
-  /* Главная — только то, чего нет на других вкладках: сколько можно тратить, «До зарплаты», важное.
-     Строки листа — в «Листе», платежи — в «Кредитах», фонды — в «Ещё». */
+  /* Главная: аура «можно сегодня», неделя, плитки разделов, важное */
   if (!snap) {
     $("summary").innerHTML = updateBanner() + `<div class="card empty">Сводка появится после первой синхронизации.<br>На компьютере: «☰ Ещё → 📲 Телефон → Настроить».</div>`;
     return;
   }
   const imp = importantItems();
   const impLine = (r) => `<div class="line"><span>${esc(r.icon)} ${esc(r.text)}</span></div>`;
-  let h = updateBanner() + staleBanner() + heroCard();
-  h += `<div class="qa">
-    <button type="button" data-go="add"><i><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></i>Записать</button>
-    <button type="button" data-go="bank"><i><svg viewBox="0 0 24 24"><path d="M3 10 12 4l9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg></i>Сверка</button>
-    <button type="button" data-go="credits"><i><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18M7 15h4"/></svg></i>Кредиты</button>
-    <button type="button" data-go="funds"><i><svg viewBox="0 0 24 24"><path d="M5 11a7 6 0 0 1 13-2h2v4l-2 1v3h-3v-2H9v2H6v-3a6 6 0 0 1-1-3z"/><circle cx="15" cy="10" r=".6"/></svg></i>Фонды</button>
-  </div>`;
-  h += walletCard();
-  h += imp.length ? `<div class="card soft"><h2>🔔 Важное</h2>${imp.slice(0, 4).map(impLine).join("")}` +
-    (imp.length > 4 ? `<details><summary>ещё ${imp.length - 4}</summary>${imp.slice(4).map(impLine).join("")}</details>` : "") + `</div>` : "";
-  const nx = nextPayments(1)[0];
-  if (nx) h += `<div class="card tap" data-go="credits" style="cursor:pointer"><div class="line" style="border:0;padding:0">
-    <span>💳 Ближайший платёж: <b>${ddmm(nx.due)}</b> · ${esc(nx.name)}</span><span class="r">${fmt(nx.amount)} ›</span></div></div>`;
+  let h = updateBanner() + staleBanner() + heroCard() + weekStrip();
+  h += `<h3 class="sect">Мои папки</h3>` + homeFolders();
+  h += imp.length ? `<div class="card imp" style="margin-top:16px"><h2>Важное <span class="cnt">${imp.length}</span></h2>${imp.slice(0, 2).map(impLine).join("")}` +
+    (imp.length > 2 ? `<details><summary>ещё ${imp.length - 2}</summary>${imp.slice(2).map(impLine).join("")}</details>` : "") + `</div>` : "";
+  h += `<p class="stamp">${esc(syncStamp())}</p>`;
   $("summary").innerHTML = h;
-  walletCardBind();
+  document.querySelectorAll("#summary .countup").forEach(countUp);
 }
 /* ------------------------------------------------------------------ Лист месяца (как на компьютере) */
 let sheetIdx = 0, sheetMode = "cols";
@@ -804,20 +903,30 @@ function renderSheet() {
     }
   } else {
     sh.halves.forEach((hf) => {
-      h += `<div class="card"><div class="line" style="border:0"><h2 style="margin:0">${esc(hf.title)}</h2>
-        <span class="r ${hf.rest < 0 ? "red" : "green"}">остаток ${fmt(hf.rest)}</span></div>`;
+      /* колонка — как вкладыш в папке: сверху остаток и полоска «потрачено из дохода», ниже карточки строк */
+      const paid = hf.rows.reduce((a, r) => a + (r.from_fund ? 0 : rowActual(r)), 0);
+      const pct = hf.income > 0 ? Math.min(100, paid / hf.income * 100) : 0;
+      h += `<div class="half">
+        <div class="half-head"><div><div class="half-t">${esc(hf.title)}</div>
+          <div class="half-rest ${hf.rest < 0 ? "red" : ""}">${hf.rest < 0 ? "не хватает " + fmt(-hf.rest) : "остаток " + fmt(hf.rest)}</div></div>
+          <div class="half-io"><span class="green">+${fmt(hf.income)}</span><span>−${fmt(hf.expense)}</span></div></div>
+        <div class="half-bar"><i style="width:${pct}%"></i></div>
+        <div class="hint" style="margin:4px 2px 10px">оплачено ${fmt(paid)} из дохода ${fmt(hf.income)}</div>`;
       if (hf.incomes.length) {
-        h += `<div class="sec" style="margin-top:6px">доход +${fmt(hf.income)}</div>`;
-        hf.incomes.forEach((r) => { h += `<div class="line"><span>${esc(r.name)}${r.fund ? ' <span class="muted">· из фонда</span>' : ""}</span><span class="r green">+${fmt(r.amount)}</span></div>`; });
+        h += `<details class="inc"><summary>доходы · ${hf.incomes.length}</summary>` + hf.incomes.map((r) =>
+          `<div class="line"><span>${esc(r.name)}${r.fund ? ' <span class="muted">· из фонда</span>' : ""}</span><span class="r green">+${fmt(r.amount)}</span></div>`).join("") + `</details>`;
       }
-      h += `<div class="sec">расходы ${fmt(hf.expense)}</div>`;
       if (!hf.rows.length) h += `<div class="hint">пока пусто</div>`;
       hf.rows.forEach((r) => {
-        const st = r.done || pendingDone(r.id) ? '<span class="dot green"></span>' : (r.spent ? '<span class="dot yellow"></span>' : '<span class="dot" style="background:#C9D6F8"></span>');
-        const extra = r.from_fund ? "из фонда" : (r.spent && !r.done ? `потрачено ${fmt(r.spent)}, ост. ${fmt(r.left)}`
-          : (r.spent && r.spent > r.amount + 0.5 ? "перерасход" : ""));
-        h += `<div class="line tap" data-row="${r.id}"><span>${st}${esc(r.name)}${pendingDone(r.id) && !r.done ? ' <span class="muted">(● ждёт отправки)</span>' : ""}${extra ? `<div class="hint" style="margin:1px 0 0 16px">${extra}</div>` : ""}</span>
-          <span class="rr"><span class="r">${fmt(r.amount)}</span>${rowQuick(r)}</span></div>`;
+        const done = r.done || pendingDone(r.id);
+        const over = r.spent && r.spent > r.amount + 0.5;
+        const sub = r.from_fund ? "из фонда" : pendingDone(r.id) && !r.done ? "● ждёт отправки"
+          : r.spent && !r.done ? `потрачено ${fmt(r.spent)} · осталось ${fmt(r.left)}` : over ? "перерасход" : done ? "оплачено" : "ещё не оплачено";
+        const bar = r.spent && !r.from_fund ? `<span class="rbar ${over ? "over" : ""}"><i style="width:${Math.min(100, r.spent / Math.max(r.amount, 1) * 100)}%"></i></span>` : "";
+        h += `<div class="rowc tap ${done ? "done" : ""}" data-row="${r.id}">
+          <span class="ric">${iconFor({ kind: "expense", category: r.category })}</span>
+          <span class="rmid"><b>${esc(r.name)}</b><span class="rsub">${sub}</span>${bar}</span>
+          <span class="ramt">${fmt(r.amount)}</span>${done ? '<span class="rcheck">✓</span>' : rowQuick(r)}</div>`;
       });
       const adds = entries.filter((e) => e.kind === "rowadd" && e.status !== "done" && e.half === hf.half && sheetOf(e.date, e.half) === sh.year * 12 + sh.month);
       adds.forEach((e) => { h += `<div class="line"><span><span class="dot" style="background:#C9D6F8"></span>${esc(e.note || e.category)} <span class="muted">(ждёт отправки)</span></span><span class="r">${e.row_kind === "income" ? "+" : ""}${fmt(e.amount)}</span></div>`; });
@@ -2472,8 +2581,17 @@ function showPage(p) {
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.page === tab));
   if (p === "bank") renderBank();
   if (p === "credits") renderCredits();
-  $("title").textContent = TITLES[p][0];
-  $("subtitle").textContent = p === "sum" ? syncStamp() : TITLES[p][1];
+  const now = new Date();
+  $("title").textContent = p === "sum" ? "Привет, Юля" : TITLES[p][0];
+  $("subtitle").textContent = p === "sum" ? `${WD_FULL[now.getDay()]}, ${now.getDate()} ${MONTHS_G[now.getMonth()]}` : TITLES[p][1];
+  document.body.classList.toggle("is-home", p === "sum");
+  const secKey = p === "more" ? moreTab() : p;
+  const sec = SECTIONS[secKey];
+  document.body.classList.toggle("in-folder", !!sec);
+  if (sec) { document.body.style.setProperty("--fc", sec.color); document.body.style.setProperty("--fi", sec.ink);
+    if (p === "more") { $("title").textContent = sec.name;
+      $("subtitle").textContent = { funds: "копилки на цели", health: "врачи, планы лечения, цикл", cal: "дни рождения, платежи, дела",
+        occ: "праздники: траты и подарки", wallet: "что ещё уйдёт до выплаты" }[secKey] || ""; } }
   if (p === "ops") renderOps();
   if (p === "more") renderMore();
   window.scrollTo(0, 0);
@@ -2484,7 +2602,7 @@ function init() {
   readHash();
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showPage(b.dataset.page)));
   document.querySelectorAll("[data-more]").forEach((b) => b.addEventListener("click", () => {
-    cfg.moreTab = b.dataset.more; saveCfg(); renderMore(); window.scrollTo(0, 0); }));
+    cfg.moreTab = b.dataset.more; saveCfg(); showPage("more"); }));
   document.querySelectorAll("#addForm .seg button").forEach((b) => b.addEventListener("click", () => { kind = b.dataset.kind; $("row").value = ""; fillForm(); }));
   document.querySelectorAll(".dest button").forEach((b) => b.addEventListener("click", () => { mode = b.dataset.mode; fillForm(); }));
   document.querySelectorAll("#opsKinds .chip").forEach((b) => b.addEventListener("click", () => {
@@ -2512,6 +2630,8 @@ function init() {
   });
   $("icsReset").addEventListener("click", () => { cfg.icsDone = []; saveCfg(); exportCalendar(); });
   document.addEventListener("click", (ev) => {
+    const fo = ev.target.closest ? ev.target.closest("[data-folder]") : null;
+    if (fo) { openFolder(fo.dataset.folder, fo); return; }
     const t = ev.target.closest ? ev.target.closest("[data-quickdone],[data-view],[data-spend],[data-pay],[data-extra],[data-sheet],[data-mode2],[data-fund],[data-fundpay],[data-go],[data-row],[data-addrow],[data-op],[data-opsm]") : null;
     if (!t) return;
     if (t.dataset.quickdone !== undefined) { ev.stopPropagation(); quickDone(Number(t.dataset.quickdone)); }
@@ -2529,6 +2649,7 @@ function init() {
     else if (t.dataset.opsm !== undefined) { opsIdx = Number(t.dataset.opsm); renderOps(); }
     else if (t.dataset.go === "ics") exportCalendar();
     else if (t.dataset.go === "funds") { cfg.moreTab = "funds"; saveCfg(); showPage("more"); }
+    else if (t.dataset.go.startsWith("more:")) { cfg.moreTab = t.dataset.go.slice(5); saveCfg(); showPage("more"); }
     else if (t.dataset.go) showPage(t.dataset.go);
   });
   $("addForm").addEventListener("submit", onSubmit);
