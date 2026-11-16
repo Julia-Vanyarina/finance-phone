@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.15-a";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.16-a";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -1445,7 +1445,7 @@ function occGiftsHtml(o) {
     h += `<div class="line"><span>${e.p.money ? "💵" : "🎁"} ${esc(e.p.who)}${e.p.what ? ` · ${esc(e.p.what)}` : ""}<span class="muted"> · ждёт отправки</span></span>
       <span class="r green">${fmtExact(e.p.sum)}</span></div>`;
   });
-  if (!h) h = '<p class="hint">Подаренные деньги из листа (доход «Подарок») появятся здесь сами, когда отметите их в операциях. Вещи — «+ Подарок» и примерная стоимость.</p>';
+  if (!h) h = '<p class="hint">Подаренные деньги из листа (доход «Подарок») появятся здесь сами — «✓ Подарки из листа…». Вещи — «+ Подарок-вещь» и примерная стоимость.</p>';
   let cmp = "";
   if (o.gifts_total) {
     const d = o.diff || 0;
@@ -1460,11 +1460,14 @@ function occDetail(o) {
     <span class="r ${x.kind === "income" ? "green" : ""}">${x.kind === "income" ? "+" : "−"}${fmtExact(x.amount)}</span></div>`).join("");
   const bg = sheetDialog(`<h2>${esc(o.emoji)} ${esc(o.name)}</h2><p class="hint">${ddmm(o.start)}–${ddmm(o.end)}.${o.end.slice(0, 4)}</p>
     <div style="margin-bottom:8px">${occSum(o)}</div>
-    ${ops || '<p class="hint">Операций пока нет.</p>'}
-    <button class="primary" data-a="pick" style="margin-top:10px">✓ Отметить операции…</button>
+    <h3 style="margin:10px 0 4px">💸 Траты</h3>
+    ${ops || '<p class="hint">Трат пока нет.</p>'}
+    <button class="primary" data-a="pick" style="margin-top:10px">✓ Отметить траты…</button>
     ${occGiftsHtml(o)}
-    <button class="primary" data-a="gift" style="margin-top:10px">+ Подарок</button>`, (a) => {
-    if (a === "pick") setTimeout(() => occPick(o), 50);
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="primary" data-a="gpick" style="flex:1">✓ Подарки из листа…</button>
+    <button class="primary" data-a="gift" style="flex:1">+ Подарок-вещь</button></div>`, (a) => {
+    if (a === "pick") setTimeout(() => occPick(o, "spend"), 50);
+    if (a === "gpick") setTimeout(() => occPick(o, "gift"), 50);
     if (a === "gift") setTimeout(() => occGiftDialog(o), 50);
   });
   bg.querySelectorAll("[data-gdel]").forEach((b) => b.addEventListener("click", (ev) => {
@@ -1499,19 +1502,22 @@ function occGiftDialog(o) {
     const money = b.dataset.k === "1";
     $("gWhatBox").hidden = money;
     $("gSumLbl").textContent = money ? "Сумма" : "Примерная стоимость";
-    $("gHint").textContent = money ? "Деньги, которые записаны в листе доходом «Подарок», здесь не пишите — отметьте их в «✓ Отметить операции…». Сюда — наличные и переводы, которых в листе нет."
+    $("gHint").textContent = money ? "Деньги, которые записаны в листе доходом «Подарок», здесь не пишите — отметьте их в «✓ Подарки из листа…». Сюда — наличные и переводы, которых в листе нет."
       : "Вещь — сколько она примерно стоит. В «из своих» не входит, только в «подарили всего».";
   }));
 }
-function occPick(o) {
+function occPick(o, mode = "spend") {
   if (!SRV) { toast("Отмечать операции можно, когда телефон подключён к серверу"); return; }
   toast("Загружаю операции…", 1500);
   srv("GET", `/api/occ?id=${o.id}`).then((data) => {
     const list = data.ops || [];
+    list.sort((a, b) => (a.income === b.income ? 0 : a.income ? 1 : -1) ||
+      (b.income && a.income ? (/^подар/i.test(b.category) ? 1 : 0) - (/^подар/i.test(a.category) ? 1 : 0) : 0) || a.date.localeCompare(b.date));
     const bg = sheetDialog(`<h2>${esc(o.emoji)} ${esc(o.name)} — операции</h2>
-      <p class="hint">Всё за даты повода и неделю вокруг. Отметьте, что к нему относится, — подарки, фуршет, подаренные деньги.</p>
+      <p class="hint">Всё за даты повода и неделю вокруг. Траты и подарки — на разных вкладках, отмеченное не теряется.</p>
+      <div class="seg" id="opMode" style="margin-bottom:8px"><button type="button" data-m="spend">💸 Траты −</button><button type="button" data-m="gift">🎁 Подарки +</button></div>
       <input id="opQ" placeholder="поиск: фуршет, подарок…" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px">
-      <div id="opList">${list.map((x, i) => `<label class="line" data-txt="${esc((x.name + " " + x.category + " " + x.amount).toLowerCase())}" style="gap:10px">
+      <div id="opList">${list.map((x, i) => `<label class="line" data-plus="${x.income ? 1 : 0}" data-txt="${esc((x.name + " " + x.category + " " + x.amount).toLowerCase())}" style="gap:10px">
         <span style="display:flex;gap:10px;align-items:flex-start;flex:1;min-width:0"><input type="checkbox" data-oc="${i}" ${x.on ? "checked" : ""} style="margin-top:3px">
         <span>${ddmm(x.date)} · ${esc(x.name)}<div class="hint" style="margin:0">${esc(x.category)}</div></span></span>
         <span class="r ${x.income ? "green" : ""}">${x.income ? "+" : "−"}${fmtExact(x.amount)}</span></label>`).join("") || '<p class="hint">За эти даты операций нет.</p>'}</div>
@@ -1530,13 +1536,19 @@ function occPick(o) {
     const sum = () => {
       let s = 0, g = 0, n = 0;
       bg.querySelectorAll("[data-oc]").forEach((c) => { if (c.checked) { const x = list[Number(c.dataset.oc)]; n++; if (x.income) g += x.amount; else s += x.amount; } });
-      $("opSum").innerHTML = `Отмечено ${n}: потрачено <b>${fmtExact(s)}</b>${g ? `, подарили <b>+${fmtExact(g)}</b>, из своих <b>${fmtExact(s - g)}</b>` : ""}`;
+      $("opSum").innerHTML = `Отмечено ${n}: потрачено <b>${fmtExact(s)}</b>${g ? `, подарили и вернули <b>+${fmtExact(g)}</b>` : ""}`;
     };
     bg.addEventListener("change", sum); sum();
-    $("opQ").addEventListener("input", () => {
+    const show = () => {
       const q = $("opQ").value.trim().toLowerCase();
-      bg.querySelectorAll("#opList [data-txt]").forEach((el) => { el.style.display = !q || el.dataset.txt.includes(q) ? "" : "none"; });
-    });
+      bg.querySelectorAll("#opList [data-txt]").forEach((el) => {
+        const okMode = (el.dataset.plus === "1") === (mode === "gift");
+        el.style.display = okMode && (!q || el.dataset.txt.includes(q)) ? "" : "none";
+      });
+      bg.querySelectorAll("#opMode button").forEach((b) => b.classList.toggle("on", b.dataset.m === mode));
+    };
+    bg.querySelectorAll("#opMode button").forEach((b) => b.addEventListener("click", () => { mode = b.dataset.m; show(); }));
+    $("opQ").addEventListener("input", show); show();
   }).catch((e) => toast(e.message || String(e), 4500));
 }
 
