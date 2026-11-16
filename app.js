@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.16-a";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.16-c";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -1385,10 +1385,11 @@ function visitDialog(v) {
 
 /* ------------------------------------------------------------------ 🎉 поводы */
 function occSum(o) {
-  const gifts = o.gifts_total != null ? o.gifts_total : o.got;
-  return `потрачено <b class="red">${fmt(o.spent)}</b>${gifts ? ` · подарили <b class="green">+${fmt(gifts)}</b>` : ""}` +
+  const money = o.gift_money != null ? o.gift_money : o.got;
+  return `потрачено <b class="red">${fmt(o.spent)}</b>${money ? ` · подарили деньгами <b class="green">+${fmt(money)}</b>` : ""}` +
     (o.returned ? ` · вернули <b class="green">+${fmt(o.returned)}</b>` : "") +
-    (o.got ? ` · из своих <b>${fmt(o.net)}</b>` : "") +
+    (o.got ? ` · из своих денег <b>${fmt(o.net)}</b>` : "") +
+    (o.gift_things ? ` · вещами на ${fmt(o.gift_things)}` : "") +
     (o.budget ? ` · бюджет ${fmt(o.budget)} → ${o.budget - o.net >= 0 ? `<span class="green">осталось ${fmt(o.budget - o.net)}</span>` : `<span class="red">сверх ${fmt(o.net - o.budget)}</span>`}` : "");
 }
 function renderOcc() {
@@ -1449,9 +1450,11 @@ function occGiftsHtml(o) {
   let cmp = "";
   if (o.gifts_total) {
     const d = o.diff || 0;
-    cmp = `<p class="hint" style="margin:6px 0 0">Подарили всего <b>${fmt(o.gifts_total)}</b>: деньгами ${fmt(o.gift_money || 0)} · вещами ${fmt(o.gift_things || 0)}<br>` +
-      (d > 0.5 ? `<span class="green">подарили на ${fmt(d)} больше, чем потратила</span>` :
-       d < -0.5 ? `<span class="red">потратила на ${fmt(-d)} больше, чем подарили</span>` : "подарили столько же, сколько потратила") + "</p>";
+    cmp = `<p class="hint" style="margin:6px 0 0"><b>Деньгами:</b> потратила ${fmt(o.spent)} − подарили ${fmt(o.gift_money || 0)}` +
+      (o.returned ? ` − вернули ${fmt(o.returned)}` : "") + ` = <b>из своих денег ${fmt(o.net)}</b>` +
+      (o.gift_things ? `<br><b>С вещами:</b> подарили всего ${fmt(o.gifts_total)} (деньги ${fmt(o.gift_money || 0)} + вещи ${fmt(o.gift_things)}) против трат ${fmt(o.spent)} → ` +
+        (d > 0.5 ? `<span class="green">подарков на ${fmt(d)} больше</span>` :
+         d < -0.5 ? `<span class="red">трат на ${fmt(-d)} больше</span>` : "поровну") + ". Вещи — не деньги, это просто сравнение." : "") + "</p>";
   }
   return `<h3 style="margin:14px 0 4px">🎁 Подарки</h3>${h}${cmp}`;
 }
@@ -1482,9 +1485,9 @@ function occDetail(o) {
 }
 function occGiftDialog(o) {
   const bg = sheetDialog(`<h2>🎁 Подарок — ${esc(o.name)}</h2>
-    <label class="field"><span>От кого</span><input id="gWho" placeholder="Бабушка Галя, коллеги…"></label>
     <div class="seg" id="gKind" style="margin-bottom:10px"><button type="button" data-k="0" class="on">🎁 Вещь</button><button type="button" data-k="1">💵 Деньги</button></div>
-    <label class="field" id="gWhatBox"><span>Что подарили</span><input id="gWhat" placeholder="сертификат, духи, цветы…"></label>
+    <label class="field" id="gWhatBox"><span>Что подарили</span><input id="gWhat" placeholder="духи, подвеска, билеты…"></label>
+    <label class="field"><span>От кого</span><input id="gWho" placeholder="необязательно: Аня, коллеги…"></label>
     <label class="field"><span id="gSumLbl">Примерная стоимость</span><input id="gSum" inputmode="decimal" placeholder="0"></label>
     <p class="hint" id="gHint">Вещь — сколько она примерно стоит. В «из своих» не входит, только в «подарили всего».</p>
     <button class="primary" data-a="save">Сохранить</button>`, (a) => {
@@ -1943,6 +1946,10 @@ function editRowDialog(id, r, half, moving) {
     const nd = $("reDate").value, amount = parseAmount($("reAmount").value), nh = Number($("reHalf").value);
     if (!nd) { toast("Укажите дату"); return false; }
     if (!(amount > 0)) { toast("Введите сумму"); return false; }
+    if (r.spent && amount < r.spent - 0.005) {
+      toast(`Из строки уже потрачено ${fmt(r.spent)} — меньше нельзя. Впишите ${fmt(r.spent)} или больше`, 4500);
+      return false;
+    }
     entries.unshift({ id: uid(), created: new Date().toISOString(), date: todayISO(), kind: "rowedit", amount,
       new_date: nd, half: nh !== half ? nh : null, category: r.category, note: r.name, row_id: id, row_name: r.name,
       mode: "send", status: "pending" });
