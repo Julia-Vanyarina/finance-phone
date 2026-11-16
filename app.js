@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.16-g";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.16-i";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -882,7 +882,7 @@ function renderSheet() {
   sheetIdx = Math.min(sheetIdx, snap.sheets.length - 1);
   const sh = snap.sheets[sheetIdx];
   const order = snap.sheets.map((x, i) => i).sort((a, b) => (snap.sheets[a].year * 12 + snap.sheets[a].month) - (snap.sheets[b].year * 12 + snap.sheets[b].month));
-  let h = viewSeg(sheetMode);
+  let h = staleBanner() + viewSeg(sheetMode);
   h += `<div class="filters">` + order.map((i) => { const x = snap.sheets[i];
     return `<button type="button" class="chip ${i === sheetIdx ? "on" : ""}" data-sheet="${i}">${esc(x.title)}</button>`; }).join("") + `</div>`;
   h += `<p class="hint" style="margin:-4px 4px 10px">${esc(sh.span)}</p>`;
@@ -905,7 +905,7 @@ function renderSheet() {
     });
     const list = [...cats.entries()].sort((a, b) => (b[1].fact + (b[1].phone || 0)) - (a[1].fact + (a[1].phone || 0)));
     const totalFact = list.reduce((a, [, c]) => a + c.fact, 0), totalPlan = list.reduce((a, [, c]) => a + c.plan, 0);
-    h += `<div class="card"><div class="line"><span><b>Потрачено</b></span><span class="r"><b>${fmt(totalFact)}</b> <span class="muted">из ${fmt(totalPlan)} по плану</span></span></div>`;
+    h += `<div class="card"><div class="cat-total"><span class="muted">Потрачено</span><b>${fmt(totalFact)}</b><span class="muted">из ${fmt(totalPlan)} по плану</span></div>`;
     list.forEach(([name, c]) => {
       const pct = c.plan > 0 ? Math.min(100, (c.fact / c.plan) * 100) : 100;
       h += `<div style="padding:6px 0"><div class="line" style="border:0;padding:0"><span>${esc(name)}</span>
@@ -2294,7 +2294,7 @@ function renderCredits() {
   const box = $("credits");
   if (!box) return;
   if (!snap) { box.innerHTML = `<div class="card empty">Кредиты появятся после синхронизации.</div>`; return; }
-  let h = nocreditLine();
+  let h = staleBanner() + nocreditLine();
   if (!snap.debts) {
     h += `<div class="card soft">Обновите программу на ноутбуке и сервере — тогда здесь появятся все кредиты и их можно будет менять с телефона.</div>`;
   }
@@ -2522,7 +2522,16 @@ function whenText(iso) {
   if (diff === 1) return `вчера в ${t}`;
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} в ${t}`;
 }
-function snapAgeH() { return snap && snap.generated ? (Date.now() - new Date(snap.generated).getTime()) / 3600000 : null; }
+function snapStamp() { return snap ? (snap.db_at || snap.generated) : null; }
+function snapAgeH() { const t = snapStamp(); return t ? (Date.now() - new Date(t).getTime()) / 3600000 : null; }
+function periodMissing() {
+  /* в снимке нет листа текущего периода (с 10-го — этот месяц, до 10-го — прошлый) — данные точно старые */
+  if (!snap || !snap.sheets || !snap.sheets.length) return false;
+  const d = new Date();
+  let y = d.getFullYear(), m = d.getMonth() + 1;
+  if (d.getDate() < 10) { m -= 1; if (m === 0) { m = 12; y -= 1; } }
+  return !snap.sheets.some((x) => x.year === y && x.month === m);
+}
 function ageText(h) {
   if (h < 1) return "меньше часа назад";
   if (h < 24) return `${Math.floor(h)} ч назад`;
@@ -2532,7 +2541,7 @@ function ageText(h) {
 function syncStamp() {
   /* под заголовком «Главной»: когда ноутбук обновил данные и когда телефон синхронизировался */
   const parts = [];
-  if (snap && snap.generated) parts.push(`данные ноутбука ${whenText(snap.generated)}`);
+  if (snapStamp()) parts.push(`данные ноутбука ${whenText(snapStamp())}`);
   if (cfg.lastSync) parts.push(`синхр. ${new Date(cfg.lastSync).toTimeString().slice(0, 5)}`);
   return parts.length ? parts.join(" · ") : "ещё не синхронизировано";
 }
@@ -2603,11 +2612,13 @@ function lastSpendsCard() {
   return h + "</div>";
 }
 function staleBanner() {
-  const h = snapAgeH();
-  if (h == null || h < 24) return "";
-  return `<div class="card warn"><b>🕰 Данные ноутбука — ${whenText(snap.generated)}</b>
-    <div class="hint" style="margin-top:4px">Даты, напоминания и «можно в день» телефон считает на сегодня сам и учитывает ваши
-    новые траты. По состоянию ноутбука — только остатки строк. Обновится, когда откроете программу на ноутбуке.</div></div>`;
+  const h = snapAgeH(), miss = periodMissing();
+  if (!miss && (h == null || h < 24)) return "";
+  const t = snapStamp();
+  return `<div class="card warn stale"><b>🕰 Телефон видит данные ноутбука ${t ? "от " + whenText(t) : "старые"}</b>
+    <div class="hint" style="margin-top:4px">${miss ? "<b>Листа этого месяца здесь ещё нет.</b> " : ""}Ноутбук давно не отправлял данные на сервер —
+    всё, что вы меняли на ноутбуке после этого, телефон не видит. Откройте программу на ноутбуке: она отправит данные сама
+    (или «☰ Ещё → 📲 Телефон → Синхронизировать»). Если не помогает — на ноутбуке будет сообщение, почему.</div></div>`;
 }
 function showPage(p) {
   document.querySelectorAll(".page").forEach((s) => s.classList.toggle("active", s.id === "page-" + p));
