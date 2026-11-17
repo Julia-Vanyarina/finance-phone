@@ -5,7 +5,7 @@
    PBKDF2-SHA256 (200 000) → AES-256-GCM, у каждого файла своя соль. */
 "use strict";
 
-const VERSION = "2026.11.16-i";          // поднимать вместе с version.json и CACHE в sw.js
+const VERSION = "2026.11.17-a";          // поднимать вместе с version.json и CACHE в sw.js
 let newVersion = "";                      // на GitHub лежит версия новее той, что открыта
 const FORMAT = "moi-finansy-1";
 const ITER = 200000;
@@ -442,10 +442,74 @@ function onRowChange() {
     if (!$("note").value) $("note").placeholder = r.name;
   }
 }
+function calcExpr(s) {
+  /* «22 205 + 3000», «4800 − 1000», «3 × 800», «(1700 + 1682) / 2» → число или NaN (без eval) */
+  const t = String(s).replace(/[\s  ₽]/g, "").replace(/×/g, "*").replace(/÷/g, "/").replace(/[−–]/g, "-").replace(/,/g, ".");
+  const tok = t.match(/\d+(?:\.\d*)?|\.\d+|[+\-*/()]/g) || [];
+  if (!t || tok.join("") !== t) return NaN;
+  let i = 0;
+  const peek = () => tok[i], take = () => tok[i++];
+  const factor = () => {
+    const x = peek();
+    if (x === undefined) return NaN;
+    if (x === "-") { take(); return -factor(); }
+    if (x === "+") { take(); return factor(); }
+    if (x === "(") { take(); const v = expr(); if (peek() !== ")") return NaN; take(); return v; }
+    if ("*/)".includes(x)) return NaN;
+    take(); return Number(x);
+  };
+  const term = () => { let v = factor(); while (peek() === "*" || peek() === "/") { const op = take(), r = factor(); v = op === "*" ? v * r : (r === 0 ? NaN : v / r); } return v; };
+  const expr = () => { let v = term(); while (peek() === "+" || peek() === "-") { const op = take(), r = term(); v = op === "+" ? v + r : v - r; } return v; };
+  const v = expr();
+  return i === tok.length && Number.isFinite(v) ? v : NaN;
+}
 function parseAmount(s) {
-  const v = Number(String(s).replace(/\s| /g, "").replace(",", "."));
+  const v = calcExpr(s);
   return Number.isFinite(v) ? Math.round(v * 100) / 100 : NaN;
 }
+/* кнопки «+ − × =» под полем суммы: у клавиатуры iPhone с цифрами их нет */
+function calcKeysFor(inp) {
+  const anchor = (inp && inp.closest(".amount")) || inp;      // большое поле суммы — кнопки строкой под ним
+  if (!inp || inp.dataset.calc === "0" || (anchor.nextElementSibling && anchor.nextElementSibling.classList.contains("calckeys"))) return;
+  const bar = document.createElement("div");
+  bar.className = "calckeys";
+  bar.innerHTML = ["+", "−", "×", "="].map((k) => `<button type="button" tabindex="-1" data-k="${k}">${k}</button>`).join("") +
+    `<em class="calcres"></em>`;
+  const res = bar.querySelector(".calcres");
+  const upd = () => {
+    const has = /[+\-*/×÷−–()]/.test(inp.value.replace(/^\s*-/, ""));
+    const v = has ? parseAmount(inp.value) : NaN;
+    res.textContent = Number.isFinite(v) ? "= " + fmtExact(v) : "";
+  };
+  inp.addEventListener("input", upd);
+  bar.addEventListener("mousedown", (e) => e.preventDefault());
+  const press = (k) => {
+    if (k === "=") {
+      const v = parseAmount(inp.value);
+      if (Number.isFinite(v)) inp.value = String(v).replace(".", ",");
+    } else {
+      inp.value = inp.value.replace(/\s+$/, "") + ` ${k} `;
+    }
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    inp.focus();
+  };
+  bar.addEventListener("touchend", (e) => { const b = e.target.closest("button"); if (b) { e.preventDefault(); press(b.dataset.k); } });
+  bar.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) press(b.dataset.k); });
+  anchor.insertAdjacentElement("afterend", bar);
+}
+document.addEventListener("focusin", (e) => {
+  const t = e.target;
+  if (t && t.tagName === "INPUT" && t.getAttribute("inputmode") === "decimal") calcKeysFor(t);
+});
+document.addEventListener("focusout", (e) => {
+  /* ушли из поля — посчитать «22205 + 3000» и показать итог */
+  const t = e.target;
+  if (!t || t.tagName !== "INPUT" || t.getAttribute("inputmode") !== "decimal") return;
+  if (/[+\-*/×÷−–()]/.test(t.value.replace(/^\s*-/, ""))) {
+    const v = parseAmount(t.value);
+    if (Number.isFinite(v)) { t.value = String(v).replace(".", ","); t.dispatchEvent(new Event("input", { bubbles: true })); }
+  }
+});
 let editingId = null;
 function setEditing(id) {
   editingId = id;
